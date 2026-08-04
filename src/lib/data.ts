@@ -8,6 +8,10 @@ export type Business = {
   brand_color: string;
   contact_phone: string | null;
   created_at: string;
+  // Gestión SaaS (admin)
+  email: string | null;
+  status: "active" | "paused";
+  payment_status: "up_to_date" | "overdue";
 };
 
 export type Program = {

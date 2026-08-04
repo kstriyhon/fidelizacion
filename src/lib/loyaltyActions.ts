@@ -48,8 +48,16 @@ async function loadMemberContext(memberId: string): Promise<{
     .eq("id", program.business_id)
     .single();
   if (e3 || !business) throw new Error(`Comercio no encontrado: ${e3?.message ?? ""}`);
+  assertActive(business as Business);
 
   return { member: member as Member, program: program as Program, business: business as Business };
+}
+
+/** Lanza si el servicio del comercio está pausado (bloquea sellos/inscripción). */
+function assertActive(business: Business) {
+  if (business.status === "paused") {
+    throw new Error("Servicio pausado. Contacta al administrador para reactivarlo.");
+  }
 }
 
 // ===========================================================================
@@ -145,6 +153,70 @@ export const adminGetBusinessFn = createServerFn({ method: "POST" })
       program: (program as Program) ?? null,
       members,
     };
+  });
+
+// ===========================================================================
+// ADMINISTRACIÓN EMPRESARIAL (SaaS) — solo admin
+// ===========================================================================
+
+/** Edita los datos de gestión de una empresa (nombre, contacto, email, pagos). */
+export const adminUpdateBusinessFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      businessId: z.string().uuid(),
+      name: z.string().trim().min(2),
+      contact_phone: z.string().trim().max(30).nullable(),
+      email: z.string().trim().email().nullable().or(z.literal("")),
+      payment_status: z.enum(["up_to_date", "overdue"]),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin(data.token);
+    const db = getSupabaseAdmin();
+    const { error } = await db
+      .from("loyalty_businesses")
+      .update({
+        name: data.name,
+        contact_phone: data.contact_phone || null,
+        email: data.email || null,
+        payment_status: data.payment_status,
+      })
+      .eq("id", data.businessId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** Pausa o reactiva el servicio de una empresa. */
+export const adminSetBusinessStatusFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      businessId: z.string().uuid(),
+      status: z.enum(["active", "paused"]),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin(data.token);
+    const db = getSupabaseAdmin();
+    const { error } = await db
+      .from("loyalty_businesses")
+      .update({ status: data.status })
+      .eq("id", data.businessId);
+    if (error) throw new Error(error.message);
+    return { ok: true, status: data.status };
+  });
+
+/** Elimina una empresa y todos sus datos (programas, clientes, historial). */
+export const adminDeleteBusinessFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), businessId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireAdmin(data.token);
+    const db = getSupabaseAdmin();
+    // El on delete cascade de las FK borra programas, clientes y eventos.
+    const { error } = await db.from("loyalty_businesses").delete().eq("id", data.businessId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });
 
 // ===========================================================================
@@ -441,11 +513,15 @@ export const broadcastFn = createServerFn({ method: "POST" })
     const db = getSupabaseAdmin();
     const { data: prog } = await db
       .from("loyalty_programs")
-      .select("business_id, loyalty_businesses(name)")
+      .select("business_id, loyalty_businesses(name, status)")
       .eq("id", data.programId)
       .single();
-    const businessName =
-      (prog as { loyalty_businesses?: { name?: string } } | null)?.loyalty_businesses?.name ?? "";
+    const biz = (prog as { loyalty_businesses?: { name?: string; status?: string } } | null)
+      ?.loyalty_businesses;
+    if (biz?.status === "paused") {
+      throw new Error("Servicio pausado. Contacta al administrador para reactivarlo.");
+    }
+    const businessName = biz?.name ?? "";
 
     const { data: members, error: me } = await db
       .from("loyalty_members")
@@ -504,6 +580,9 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
       .eq("id", program.business_id)
       .single();
     if (be || !business) throw new Error(`Comercio no encontrado: ${be?.message ?? ""}`);
+    if ((business as Business).status === "paused") {
+      throw new Error("Este comercio no está disponible por el momento.");
+    }
 
     const { data: member, error: me } = await db
       .from("loyalty_members")

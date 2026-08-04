@@ -330,6 +330,13 @@ export function Dashboard({
           </div>
         </div>
 
+        {business.status === "paused" ? (
+          <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+            ⚠️ <strong>Servicio pausado.</strong> No puedes inscribir clientes ni dar sellos.
+            Contacta al administrador para reactivarlo.
+          </div>
+        ) : null}
+
         <div className="mt-6 grid gap-6 md:grid-cols-[1fr_320px]">
           {/* Miembros */}
           <div>
