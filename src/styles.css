@@ -1,0 +1,94 @@
+@import "tailwindcss" source(none);
+@import "tw-animate-css";
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=Manrope:wght@300;400;500;600;700&display=swap");
+
+@source "../src";
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-display: "Sora", sans-serif;
+  --font-sans: "Manrope", sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-frost: var(--frost);
+  --color-ice: var(--ice);
+  --color-deep: var(--deep);
+}
+
+:root {
+  --radius: 0.5rem;
+
+  /* Arctic Frost palette */
+  --frost: oklch(0.97 0.012 240); /* #e8f0f8 */
+  --ice: oklch(0.86 0.045 235); /* #b8d4e8 */
+  --background: oklch(0.99 0.005 240);
+  --foreground: oklch(0.22 0.04 240);
+  --primary: oklch(0.48 0.07 235); /* #2e6b8a deep */
+  --primary-foreground: oklch(0.99 0.005 240);
+  --deep: oklch(0.48 0.07 235);
+  --secondary: oklch(0.97 0.012 240);
+  --secondary-foreground: oklch(0.3 0.05 240);
+  --muted: oklch(0.96 0.01 240);
+  --muted-foreground: oklch(0.5 0.03 240);
+  --accent: oklch(0.68 0.06 235); /* #6ba3c8 */
+  --accent-foreground: oklch(0.99 0.005 240);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.04 240);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.04 240);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.99 0.005 240);
+  --border: oklch(0.91 0.018 235);
+  --input: oklch(0.91 0.018 235);
+  --ring: oklch(0.68 0.06 235);
+
+  --gradient-frost: linear-gradient(180deg, var(--frost) 0%, oklch(1 0 0) 100%);
+  --gradient-deep: linear-gradient(135deg, var(--deep) 0%, var(--accent) 100%);
+  --shadow-soft: 0 1px 2px oklch(0.48 0.07 235 / 0.04), 0 8px 24px oklch(0.48 0.07 235 / 0.06);
+  --shadow-deep: 0 20px 60px -20px oklch(0.48 0.07 235 / 0.25);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+}

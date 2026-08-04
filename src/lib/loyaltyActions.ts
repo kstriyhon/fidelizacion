@@ -1,0 +1,534 @@
+// Server functions: puente entre la UI, Supabase y Google Wallet.
+// FASE 2 (seguridad): usan el cliente service_role (omite RLS) y AUTORIZAN cada
+// acción (dueño del negocio o admin) verificando el access_token del usuario.
+// La inscripción pública (enroll) no requiere sesión.
+
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+
+import type { Business, Member, Program } from "./data";
+import { getSupabaseAdmin } from "./supabaseAdmin.server";
+import {
+  requireUser,
+  requireAdmin,
+  requireBusinessAccess,
+  requireProgramAccess,
+  requireMemberAccess,
+} from "./authz.server";
+import {
+  createMemberPass,
+  ensureProgramClass,
+  pushStampUpdate,
+  pushMessage,
+} from "./wallet/google.server";
+
+async function loadMemberContext(memberId: string): Promise<{
+  member: Member;
+  program: Program;
+  business: Business;
+}> {
+  const db = getSupabaseAdmin();
+  const { data: member, error: e1 } = await db
+    .from("loyalty_members")
+    .select("*")
+    .eq("id", memberId)
+    .single();
+  if (e1 || !member) throw new Error(`Cliente no encontrado: ${e1?.message ?? memberId}`);
+
+  const { data: program, error: e2 } = await db
+    .from("loyalty_programs")
+    .select("*")
+    .eq("id", member.program_id)
+    .single();
+  if (e2 || !program) throw new Error(`Programa no encontrado: ${e2?.message ?? ""}`);
+
+  const { data: business, error: e3 } = await db
+    .from("loyalty_businesses")
+    .select("*")
+    .eq("id", program.business_id)
+    .single();
+  if (e3 || !business) throw new Error(`Comercio no encontrado: ${e3?.message ?? ""}`);
+
+  return { member: member as Member, program: program as Program, business: business as Business };
+}
+
+// ===========================================================================
+// LECTURA
+// ===========================================================================
+
+/** Panel del comercio: datos del negocio del usuario autenticado. */
+export const getMyDashboardFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string() }))
+  .handler(async ({ data }) => {
+    const user = await requireUser(data.token);
+    const db = getSupabaseAdmin();
+    const { data: business } = await db
+      .from("loyalty_businesses")
+      .select("*")
+      .eq("owner_id", user.id)
+      .order("created_at")
+      .limit(1)
+      .maybeSingle();
+    if (!business) return { business: null, program: null, members: [] as Member[] };
+
+    const { data: program } = await db
+      .from("loyalty_programs")
+      .select("*")
+      .eq("business_id", business.id)
+      .order("created_at")
+      .limit(1)
+      .maybeSingle();
+    let members: Member[] = [];
+    if (program) {
+      const { data: mem } = await db
+        .from("loyalty_members")
+        .select("*")
+        .eq("program_id", program.id)
+        .order("enrolled_at", { ascending: false });
+      members = (mem as Member[]) ?? [];
+    }
+    return {
+      business: business as Business,
+      program: (program as Program) ?? null,
+      members,
+    };
+  });
+
+/** Admin: todos los negocios, programas y clientes. */
+export const adminListFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string() }))
+  .handler(async ({ data }) => {
+    await requireAdmin(data.token);
+    const db = getSupabaseAdmin();
+    const [{ data: businesses }, { data: programs }, { data: members }] = await Promise.all([
+      db.from("loyalty_businesses").select("*").order("created_at"),
+      db.from("loyalty_programs").select("*"),
+      db.from("loyalty_members").select("*"),
+    ]);
+    return {
+      businesses: (businesses as Business[]) ?? [],
+      programs: (programs as Program[]) ?? [],
+      members: (members as Member[]) ?? [],
+    };
+  });
+
+/** Admin: un negocio concreto (para gestionar sus tarjetas). */
+export const adminGetBusinessFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), businessId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireAdmin(data.token);
+    const db = getSupabaseAdmin();
+    const { data: business } = await db
+      .from("loyalty_businesses")
+      .select("*")
+      .eq("id", data.businessId)
+      .maybeSingle();
+    if (!business) return { business: null, program: null, members: [] as Member[] };
+    const { data: program } = await db
+      .from("loyalty_programs")
+      .select("*")
+      .eq("business_id", data.businessId)
+      .order("created_at")
+      .limit(1)
+      .maybeSingle();
+    let members: Member[] = [];
+    if (program) {
+      const { data: mem } = await db
+        .from("loyalty_members")
+        .select("*")
+        .eq("program_id", program.id)
+        .order("enrolled_at", { ascending: false });
+      members = (mem as Member[]) ?? [];
+    }
+    return {
+      business: business as Business,
+      program: (program as Program) ?? null,
+      members,
+    };
+  });
+
+// ===========================================================================
+// ESCRITURA — gestión (dueño o admin)
+// ===========================================================================
+
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 40);
+}
+
+/** Crea un negocio + su primer programa. El dueño es el usuario autenticado. */
+export const createBusinessFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      name: z.string().trim().min(2),
+      brand_color: z.string().trim().min(4).max(9),
+      programName: z.string().trim().min(1),
+      stamps_required: z.number().int().min(1).max(30),
+      reward_description: z.string().trim().min(1),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser(data.token);
+    const db = getSupabaseAdmin();
+
+    const slug = `${slugify(data.name)}-${Math.random().toString(36).slice(2, 6)}`;
+    const { data: biz, error: be } = await db
+      .from("loyalty_businesses")
+      .insert({ name: data.name, slug, brand_color: data.brand_color, owner_id: user.id })
+      .select("*")
+      .single();
+    if (be || !biz) throw new Error(`No se pudo crear el comercio: ${be?.message ?? ""}`);
+
+    const { data: prog, error: pe } = await db
+      .from("loyalty_programs")
+      .insert({
+        business_id: biz.id,
+        name: data.programName,
+        stamps_required: data.stamps_required,
+        reward_description: data.reward_description,
+      })
+      .select("*")
+      .single();
+    if (pe || !prog) throw new Error(`No se pudo crear el programa: ${pe?.message ?? ""}`);
+
+    try {
+      const res = await ensureProgramClass(prog as Program, biz as Business);
+      await db.from("loyalty_programs").update({ wallet_class_id: res.classId }).eq("id", prog.id);
+    } catch (err) {
+      console.warn("provision class:", err);
+    }
+    return { business: biz as Business };
+  });
+
+/** Sube/actualiza el logo del negocio (dueño o admin) y re-aprovisiona la tarjeta. */
+export const uploadLogoFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      businessId: z.string().uuid(),
+      contentType: z.enum(["image/png", "image/jpeg", "image/webp"]),
+      dataBase64: z.string().min(1),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireBusinessAccess(data.token, data.businessId);
+    const db = getSupabaseAdmin();
+
+    const ext =
+      data.contentType === "image/png"
+        ? "png"
+        : data.contentType === "image/webp"
+          ? "webp"
+          : "jpg";
+    const bytes = Uint8Array.from(atob(data.dataBase64), (c) => c.charCodeAt(0));
+    if (bytes.length > 5 * 1024 * 1024) throw new Error("La imagen supera 5MB.");
+
+    const path = `${data.businessId}-${Date.now()}.${ext}`;
+    const { error: upErr } = await db.storage
+      .from("logos")
+      .upload(path, bytes, { contentType: data.contentType, upsert: true });
+    if (upErr) throw new Error(`No se pudo subir el logo: ${upErr.message}`);
+
+    const { data: pub } = db.storage.from("logos").getPublicUrl(path);
+    const logo_url = pub.publicUrl;
+
+    const { error: updErr } = await db
+      .from("loyalty_businesses")
+      .update({ logo_url })
+      .eq("id", data.businessId);
+    if (updErr) throw new Error(updErr.message);
+
+    // Re-aprovisiona la LoyaltyClass para que el logo aparezca en el pase.
+    try {
+      const { data: business } = await db
+        .from("loyalty_businesses")
+        .select("*")
+        .eq("id", data.businessId)
+        .single();
+      const { data: program } = await db
+        .from("loyalty_programs")
+        .select("*")
+        .eq("business_id", data.businessId)
+        .order("created_at")
+        .limit(1)
+        .maybeSingle();
+      if (business && program) {
+        await ensureProgramClass(program as Program, business as Business);
+      }
+    } catch (err) {
+      console.warn("re-provision tras logo:", err);
+    }
+
+    return { logo_url };
+  });
+
+/** Edita el mensaje personalizado del sello. */
+export const updateStampMessageFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      programId: z.string().uuid(),
+      stamp_message: z.string().max(300).nullable(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireProgramAccess(data.token, data.programId);
+    const db = getSupabaseAdmin();
+    const value = (data.stamp_message ?? "").trim();
+    const { error } = await db
+      .from("loyalty_programs")
+      .update({ stamp_message: value || null })
+      .eq("id", data.programId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** (Re)aprovisiona la LoyaltyClass del programa en Google Wallet. */
+export const provisionProgramFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), programId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireProgramAccess(data.token, data.programId);
+    const db = getSupabaseAdmin();
+    const { data: program, error: pe } = await db
+      .from("loyalty_programs")
+      .select("*")
+      .eq("id", data.programId)
+      .single();
+    if (pe || !program) throw new Error(`Programa no encontrado: ${pe?.message ?? ""}`);
+    const { data: business, error: be } = await db
+      .from("loyalty_businesses")
+      .select("*")
+      .eq("id", program.business_id)
+      .single();
+    if (be || !business) throw new Error(`Comercio no encontrado: ${be?.message ?? ""}`);
+
+    const res = await ensureProgramClass(program as Program, business as Business);
+    await db.from("loyalty_programs").update({ wallet_class_id: res.classId }).eq("id", program.id);
+    return res;
+  });
+
+/** Suma un sello (dueño o admin). */
+export const addStampFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), memberId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireMemberAccess(data.token, data.memberId);
+    const db = getSupabaseAdmin();
+    const { member, program, business } = await loadMemberContext(data.memberId);
+
+    const newStamps = Math.min(member.stamps + 1, program.stamps_required);
+    const completed = newStamps >= program.stamps_required;
+
+    const { data: updated, error } = await db
+      .from("loyalty_members")
+      .update({ stamps: newStamps, last_stamp_at: new Date().toISOString() })
+      .eq("id", member.id)
+      .select("*")
+      .single();
+    if (error || !updated) throw new Error(`No se pudo sellar: ${error?.message ?? ""}`);
+
+    await db.from("loyalty_stamp_events").insert({
+      member_id: member.id,
+      delta: newStamps - member.stamps,
+      kind: "stamp",
+    });
+
+    const faltan = program.stamps_required - newStamps;
+    const message = completed
+      ? {
+          header: `¡Tarjeta completa! 🎉`,
+          body: `Ya puedes reclamar: ${program.reward_description} en ${business.name}.`,
+        }
+      : {
+          header: `¡Nuevo sello! ✅`,
+          body: program.stamp_message
+            ? program.stamp_message
+                .replace(/\{negocio\}/g, business.name)
+                .replace(/\{nombre\}/g, member.full_name)
+                .replace(/\{sellos\}/g, String(newStamps))
+                .replace(/\{total\}/g, String(program.stamps_required))
+                .replace(/\{faltan\}/g, String(faltan))
+                .replace(/\{premio\}/g, program.reward_description)
+            : `Vas ${newStamps}/${program.stamps_required} en ${business.name}. Te ${
+                faltan === 1 ? "falta" : "faltan"
+              } ${faltan} para tu premio.`,
+        };
+    const push = await pushStampUpdate(
+      { id: member.id, full_name: member.full_name, stamps: newStamps },
+      program,
+      message,
+    );
+
+    return { member: updated as Member, completed, push };
+  });
+
+/** Canjea el premio (dueño o admin). */
+export const redeemRewardFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), memberId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireMemberAccess(data.token, data.memberId);
+    const db = getSupabaseAdmin();
+    const { member, program, business } = await loadMemberContext(data.memberId);
+    if (member.stamps < program.stamps_required) {
+      throw new Error("La tarjeta aún no está completa.");
+    }
+
+    const { data: updated, error } = await db
+      .from("loyalty_members")
+      .update({ stamps: 0, rewards_redeemed: member.rewards_redeemed + 1 })
+      .eq("id", member.id)
+      .select("*")
+      .single();
+    if (error || !updated) throw new Error(`No se pudo canjear: ${error?.message ?? ""}`);
+
+    await db.from("loyalty_stamp_events").insert({
+      member_id: member.id,
+      delta: -program.stamps_required,
+      kind: "redeem",
+      note: program.reward_description,
+    });
+
+    const push = await pushStampUpdate(
+      { id: member.id, full_name: member.full_name, stamps: 0 },
+      program,
+      {
+        header: "Premio canjeado ✅",
+        body: `¡Gracias por tu visita a ${business.name}! Empieza una nueva tarjeta.`,
+      },
+    );
+    return { member: updated as Member, push };
+  });
+
+/** Mensaje puntual a un cliente (dueño o admin). */
+export const sendMemberMessageFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      memberId: z.string().uuid(),
+      title: z.string().trim().min(1).max(60),
+      body: z.string().trim().min(1).max(300),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireMemberAccess(data.token, data.memberId);
+    const { member, business } = await loadMemberContext(data.memberId);
+    const vars: Record<string, string> = { nombre: member.full_name, negocio: business.name };
+    const fill = (s: string) => s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+    const push = await pushMessage(member.id, {
+      header: fill(data.title),
+      body: fill(data.body),
+    });
+    return { push };
+  });
+
+/** Aviso a TODOS los clientes de un programa (dueño o admin). Object-level. */
+export const broadcastFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      programId: z.string().uuid(),
+      title: z.string().trim().min(1).max(60),
+      body: z.string().trim().min(1).max(300),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireProgramAccess(data.token, data.programId);
+    const db = getSupabaseAdmin();
+    const { data: prog } = await db
+      .from("loyalty_programs")
+      .select("business_id, loyalty_businesses(name)")
+      .eq("id", data.programId)
+      .single();
+    const businessName =
+      (prog as { loyalty_businesses?: { name?: string } } | null)?.loyalty_businesses?.name ?? "";
+
+    const { data: members, error: me } = await db
+      .from("loyalty_members")
+      .select("id, full_name")
+      .eq("program_id", data.programId);
+    if (me) throw new Error(`No se pudieron cargar los clientes: ${me.message}`);
+
+    const list = (members ?? []) as { id: string; full_name: string }[];
+    const fill = (s: string, name: string) =>
+      s.replace(/\{negocio\}/g, businessName).replace(/\{nombre\}/g, name);
+
+    const results = await Promise.allSettled(
+      list.map((m) =>
+        pushMessage(m.id, {
+          header: fill(data.title, m.full_name),
+          body: fill(data.body, m.full_name),
+        }),
+      ),
+    );
+    const fulfilled = results.filter(
+      (r): r is PromiseFulfilledResult<{ sent: boolean; mock: boolean }> => r.status === "fulfilled",
+    );
+    const sent = fulfilled.filter((r) => r.value.sent).length;
+    const failed = results.length - fulfilled.length;
+    const mock = fulfilled.length > 0 && fulfilled.every((r) => r.value.mock);
+    return { total: list.length, sent, failed, mock };
+  });
+
+// ===========================================================================
+// ESCRITURA — pública (inscripción de clientes)
+// ===========================================================================
+
+/** Inscribe un cliente a un programa y le genera el pase. Público (sin sesión). */
+export const enrollMemberFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      programId: z.string().uuid(),
+      full_name: z.string().min(2),
+      phone: z.string().optional(),
+      email: z.string().email().optional().or(z.literal("")),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const db = getSupabaseAdmin();
+    const { data: program, error: pe } = await db
+      .from("loyalty_programs")
+      .select("*")
+      .eq("id", data.programId)
+      .eq("active", true)
+      .single();
+    if (pe || !program) throw new Error(`Programa no encontrado o inactivo: ${pe?.message ?? ""}`);
+
+    const { data: business, error: be } = await db
+      .from("loyalty_businesses")
+      .select("*")
+      .eq("id", program.business_id)
+      .single();
+    if (be || !business) throw new Error(`Comercio no encontrado: ${be?.message ?? ""}`);
+
+    const { data: member, error: me } = await db
+      .from("loyalty_members")
+      .insert({
+        program_id: data.programId,
+        full_name: data.full_name,
+        phone: data.phone || null,
+        email: data.email || null,
+        stamps: 0,
+      })
+      .select("*")
+      .single();
+    if (me || !member) throw new Error(`No se pudo inscribir: ${me?.message ?? ""}`);
+
+    const pass = await createMemberPass(
+      { id: member.id, full_name: member.full_name, stamps: member.stamps },
+      program as Program,
+      business as Business,
+    );
+
+    await db.from("loyalty_members").update({ wallet_object_id: pass.objectId }).eq("id", member.id);
+
+    return {
+      member: { ...(member as Member), wallet_object_id: pass.objectId },
+      saveUrl: pass.saveUrl,
+      mock: pass.mock,
+    };
+  });
