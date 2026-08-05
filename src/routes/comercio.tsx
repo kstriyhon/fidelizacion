@@ -15,6 +15,7 @@ import {
   Megaphone,
   ImagePlus,
   ScanLine,
+  MapPin,
 } from "lucide-react";
 
 import { useSession, signOut, getAccessToken } from "@/lib/auth";
@@ -26,8 +27,10 @@ import {
   broadcastFn,
   createBusinessFn,
   updateStampMessageFn,
+  updateWelcomeMessageFn,
   getMyDashboardFn,
   uploadLogoFn,
+  setBusinessLocationFn,
 } from "@/lib/loyaltyActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -455,6 +458,10 @@ export function Dashboard({
 
             <LogoEditor business={business} reload={reload} />
 
+            <LocationEditor business={business} reload={reload} />
+
+            {program ? <WelcomeMessageEditor program={program} reload={reload} /> : null}
+
             {program ? <StampMessageEditor program={program} reload={reload} /> : null}
           </aside>
         </div>
@@ -881,6 +888,129 @@ function LogoEditor({ business, reload }: { business: Business; reload: () => vo
           {uploading ? "Subiendo…" : business.logo_url ? "Cambiar logo" : "Subir logo"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Alertas de proximidad: ubicación del negocio
+// ---------------------------------------------------------------------------
+function LocationEditor({ business, reload }: { business: Business; reload: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const hasLoc = business.latitude != null && business.longitude != null;
+
+  async function save(latitude: number | null, longitude: number | null, okMsg: string) {
+    setBusy(true);
+    try {
+      const token = await getAccessToken();
+      await setBusinessLocationFn({ data: { token, businessId: business.id, latitude, longitude } });
+      toast.success(okMsg);
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function useCurrent() {
+    if (!navigator.geolocation) {
+      toast.error("Tu navegador no soporta geolocalización.");
+      return;
+    }
+    setBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => save(pos.coords.latitude, pos.coords.longitude, "Ubicación guardada"),
+      () => {
+        setBusy(false);
+        toast.error("No se pudo obtener la ubicación. Acepta el permiso de ubicación.");
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  }
+
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <h3 className="flex items-center gap-2 text-sm font-semibold">
+        <MapPin className="h-4 w-4 text-primary" /> Alertas de proximidad
+      </h3>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Cuando un cliente pase cerca de tu negocio, Google Wallet le mostrará su tarjeta. La
+        distancia la decide Google (~150 m).
+      </p>
+      {hasLoc ? (
+        <p className="mt-2 text-xs">
+          📍 Ubicación configurada ({business.latitude!.toFixed(5)}, {business.longitude!.toFixed(5)})
+        </p>
+      ) : (
+        <p className="mt-2 text-xs text-muted-foreground">Sin ubicación configurada.</p>
+      )}
+      <div className="mt-3 flex gap-2">
+        <Button size="sm" className="gap-1" disabled={busy} onClick={useCurrent}>
+          <MapPin className="h-4 w-4" />
+          {busy ? "Obteniendo…" : hasLoc ? "Actualizar ubicación" : "Usar mi ubicación actual"}
+        </Button>
+        {hasLoc ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => save(null, null, "Ubicación eliminada")}
+          >
+            Quitar
+          </Button>
+        ) : null}
+      </div>
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        Consejo: hazlo estando físicamente en el local para capturar la ubicación correcta.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Editor del mensaje de bienvenida (al inscribirse)
+// ---------------------------------------------------------------------------
+function WelcomeMessageEditor({ program, reload }: { program: Program; reload: () => void }) {
+  const [text, setText] = useState(program.welcome_message ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const token = await getAccessToken();
+      await updateWelcomeMessageFn({
+        data: { token, programId: program.id, welcome_message: text.trim() || null },
+      });
+      toast.success("Mensaje de bienvenida guardado");
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <h3 className="flex items-center gap-2 text-sm font-semibold">
+        <BellRing className="h-4 w-4 text-primary" /> Mensaje de bienvenida
+      </h3>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Aparece en la tarjeta del cliente al inscribirse. Puedes usar{" "}
+        <span className="font-mono">{"{nombre}"}</span> y{" "}
+        <span className="font-mono">{"{negocio}"}</span>. Vacío = mensaje por defecto.
+      </p>
+      <Textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={3}
+        className="mt-2 text-sm"
+        placeholder="Ej.: ¡Hola {nombre}! Gracias por unirte a {negocio}. 🎉"
+      />
+      <Button size="sm" onClick={save} disabled={saving} className="mt-2 w-full">
+        {saving ? "Guardando…" : "Guardar bienvenida"}
+      </Button>
     </div>
   );
 }

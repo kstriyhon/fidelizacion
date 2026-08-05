@@ -29,6 +29,8 @@ export type BusinessLike = {
   name: string;
   brand_color: string;
   logo_url: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 };
 export type MemberLike = {
   id: string;
@@ -70,6 +72,10 @@ function buildClass(cfg: WalletConfig, program: ProgramLike, business: BusinessL
         defaultValue: { language: "es", value: `Logo de ${business.name}` },
       },
     },
+    // Ubicación para alertas de proximidad (Google decide el radio, ~150 m).
+    ...(business.latitude != null && business.longitude != null
+      ? { locations: [{ latitude: business.latitude, longitude: business.longitude }] }
+      : {}),
     // "sellos requeridos" y premio como módulo de texto informativo.
     textModulesData: [
       {

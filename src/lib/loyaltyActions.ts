@@ -340,6 +340,48 @@ export const uploadLogoFn = createServerFn({ method: "POST" })
     return { logo_url };
   });
 
+/** Guarda la ubicación del negocio (alertas de proximidad) y re-aprovisiona la tarjeta. */
+export const setBusinessLocationFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      businessId: z.string().uuid(),
+      latitude: z.number().min(-90).max(90).nullable(),
+      longitude: z.number().min(-180).max(180).nullable(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireBusinessAccess(data.token, data.businessId);
+    const db = getSupabaseAdmin();
+    const { error } = await db
+      .from("loyalty_businesses")
+      .update({ latitude: data.latitude, longitude: data.longitude })
+      .eq("id", data.businessId);
+    if (error) throw new Error(error.message);
+
+    // Re-aprovisiona la LoyaltyClass para que la ubicación llegue al pase.
+    try {
+      const { data: business } = await db
+        .from("loyalty_businesses")
+        .select("*")
+        .eq("id", data.businessId)
+        .single();
+      const { data: program } = await db
+        .from("loyalty_programs")
+        .select("*")
+        .eq("business_id", data.businessId)
+        .order("created_at")
+        .limit(1)
+        .maybeSingle();
+      if (business && program) {
+        await ensureProgramClass(program as Program, business as Business);
+      }
+    } catch (err) {
+      console.warn("re-provision tras ubicación:", err);
+    }
+    return { ok: true };
+  });
+
 /** Edita el mensaje personalizado del sello. */
 export const updateStampMessageFn = createServerFn({ method: "POST" })
   .validator(
@@ -356,6 +398,27 @@ export const updateStampMessageFn = createServerFn({ method: "POST" })
     const { error } = await db
       .from("loyalty_programs")
       .update({ stamp_message: value || null })
+      .eq("id", data.programId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** Edita el mensaje de bienvenida (al inscribirse). */
+export const updateWelcomeMessageFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      programId: z.string().uuid(),
+      welcome_message: z.string().max(300).nullable(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireProgramAccess(data.token, data.programId);
+    const db = getSupabaseAdmin();
+    const value = (data.welcome_message ?? "").trim();
+    const { error } = await db
+      .from("loyalty_programs")
+      .update({ welcome_message: value || null })
       .eq("id", data.programId);
     if (error) throw new Error(error.message);
     return { ok: true };
@@ -604,6 +667,19 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
     );
 
     await db.from("loyalty_members").update({ wallet_object_id: pass.objectId }).eq("id", member.id);
+
+    // Mensaje de bienvenida en el pase (aparece al agregar la tarjeta).
+    try {
+      const tpl =
+        (program as Program).welcome_message ||
+        "¡Bienvenido/a, {nombre}! Gracias por unirte a {negocio}. Junta sellos y gana premios.";
+      const body = tpl
+        .replace(/\{nombre\}/g, member.full_name)
+        .replace(/\{negocio\}/g, (business as Business).name);
+      await pushMessage(member.id, { header: `¡Bienvenido/a a ${(business as Business).name}! 🎉`, body });
+    } catch (err) {
+      console.warn("welcome message:", err);
+    }
 
     return {
       member: { ...(member as Member), wallet_object_id: pass.objectId },

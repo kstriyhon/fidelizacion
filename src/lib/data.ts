@@ -12,6 +12,9 @@ export type Business = {
   email: string | null;
   status: "active" | "paused";
   payment_status: "up_to_date" | "overdue";
+  // Ubicación para alertas de proximidad (Google Wallet). null = sin alerta.
+  latitude: number | null;
+  longitude: number | null;
 };
 
 export type Program = {
@@ -25,6 +28,8 @@ export type Program = {
   /** Plantilla del mensaje push al dar un sello. null = mensaje por defecto.
    *  Variables: {sellos} {total} {faltan} {negocio} {premio} {nombre} */
   stamp_message: string | null;
+  /** Mensaje de bienvenida al inscribirse. null = por defecto. Vars: {nombre} {negocio} */
+  welcome_message: string | null;
   created_at: string;
 };
 
