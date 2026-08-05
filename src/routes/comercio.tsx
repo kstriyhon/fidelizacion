@@ -16,6 +16,7 @@ import {
   ImagePlus,
   ScanLine,
   MapPin,
+  MessageCircle,
 } from "lucide-react";
 
 import { useSession, signOut, getAccessToken } from "@/lib/auth";
@@ -467,7 +468,11 @@ export function Dashboard({
         </div>
       </div>
 
-      <MemberMessageDialog member={msgMember} onClose={() => setMsgMember(null)} />
+      <MemberMessageDialog
+        member={msgMember}
+        businessName={business.name}
+        onClose={() => setMsgMember(null)}
+      />
       {program ? (
         <BroadcastDialog
           program={program}
@@ -701,14 +706,31 @@ const MESSAGE_PRESETS: { label: string; title: string; body: string }[] = [
 
 function MemberMessageDialog({
   member,
+  businessName,
   onClose,
 }: {
   member: Member | null;
+  businessName: string;
   onClose: () => void;
 }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
+
+  function openWhatsApp() {
+    if (!member) return;
+    const phone = (member.phone || "").replace(/\D/g, "");
+    if (!phone) {
+      toast.error("Este cliente no dejó número de WhatsApp.");
+      return;
+    }
+    const fill = (s: string) =>
+      s.replace(/\{nombre\}/g, member.full_name).replace(/\{negocio\}/g, businessName);
+    const t = fill(title.trim());
+    const b = fill(body.trim());
+    const text = [t, b].filter(Boolean).join("\n\n") || fill(`¡Hola {nombre}!`);
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank");
+  }
 
   // Reinicia los campos cada vez que se abre para un cliente distinto.
   useEffect(() => {
@@ -748,7 +770,7 @@ function MemberMessageDialog({
         <DialogHeader>
           <DialogTitle>Enviar mensaje a {member?.full_name}</DialogTitle>
           <DialogDescription>
-            Le llega a su tarjeta en Google Wallet con notificación. Puedes usar{" "}
+            Envíalo a su tarjeta de Google Wallet (notificación) o por WhatsApp. Puedes usar{" "}
             <span className="font-mono">{"{nombre}"}</span> y{" "}
             <span className="font-mono">{"{negocio}"}</span>.
           </DialogDescription>
@@ -790,13 +812,24 @@ function MemberMessageDialog({
           />
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={sending}>
-            Cancelar
+        <DialogFooter className="flex-col gap-2 sm:flex-row">
+          <Button
+            variant="outline"
+            onClick={openWhatsApp}
+            disabled={sending}
+            className="gap-1 text-green-600 hover:text-green-700"
+            title={member?.phone ? "Abrir WhatsApp con el mensaje" : "Este cliente no dejó WhatsApp"}
+          >
+            <MessageCircle className="h-4 w-4" /> WhatsApp
           </Button>
-          <Button onClick={send} disabled={sending} className="gap-1">
-            <Send className="h-4 w-4" /> {sending ? "Enviando…" : "Enviar"}
-          </Button>
+          <div className="flex gap-2 sm:ml-auto">
+            <Button variant="outline" onClick={onClose} disabled={sending}>
+              Cancelar
+            </Button>
+            <Button onClick={send} disabled={sending} className="gap-1">
+              <Send className="h-4 w-4" /> {sending ? "Enviando…" : "Enviar a Wallet"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
