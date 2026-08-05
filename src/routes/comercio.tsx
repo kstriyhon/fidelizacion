@@ -17,6 +17,9 @@ import {
   ScanLine,
   MapPin,
   MessageCircle,
+  MoreVertical,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 
 import { useSession, signOut, getAccessToken } from "@/lib/auth";
@@ -25,8 +28,11 @@ import {
   addStampFn,
   redeemRewardFn,
   sendMemberMessageFn,
+  updateMemberFn,
+  deleteMemberFn,
   broadcastFn,
   createBusinessFn,
+  updateProgramFn,
   updateStampMessageFn,
   updateWelcomeMessageFn,
   getMyDashboardFn,
@@ -45,6 +51,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { LoyaltyCard } from "@/components/LoyaltyCard";
 
 export const Route = createFileRoute("/comercio")({
@@ -243,8 +255,11 @@ export function Dashboard({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [msgMember, setMsgMember] = useState<Member | null>(null);
+  const [editMember, setEditMember] = useState<Member | null>(null);
+  const [delMember, setDelMember] = useState<Member | null>(null);
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
+  const [programEditOpen, setProgramEditOpen] = useState(false);
   const enrollUrl =
     typeof window !== "undefined" ? `${window.location.origin}/unirse/${business.slug}` : "";
 
@@ -316,6 +331,15 @@ export function Dashboard({
               <p className="text-xs text-muted-foreground">
                 {program ? `${program.name} · ${program.stamps_required} sellos = ${program.reward_description}` : "Sin programa"}
               </p>
+              {program ? (
+                <button
+                  type="button"
+                  onClick={() => setProgramEditOpen(true)}
+                  className="mt-0.5 text-[11px] text-primary hover:underline"
+                >
+                  Editar programa
+                </button>
+              ) : null}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -415,6 +439,24 @@ export function Dashboard({
                             <Plus className="h-4 w-4" /> Sello
                           </Button>
                         )}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button size="icon" variant="ghost" title="Más opciones">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setEditMember(m)}>
+                              <Pencil className="mr-2 h-4 w-4" /> Editar cliente
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => setDelMember(m)}
+                              className="text-red-600 focus:text-red-700"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" /> Eliminar tarjeta
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </li>
                   );
@@ -482,7 +524,118 @@ export function Dashboard({
         />
       ) : null}
       <ScanDialog open={scanOpen} onClose={() => setScanOpen(false)} onDetect={handleScan} />
+      <MemberEditDialog member={editMember} onClose={() => setEditMember(null)} reload={reload} />
+      <MemberDeleteDialog member={delMember} onClose={() => setDelMember(null)} reload={reload} />
+      {program ? (
+        <ProgramEditDialog
+          program={program}
+          open={programEditOpen}
+          onClose={() => setProgramEditOpen(false)}
+          reload={reload}
+        />
+      ) : null}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Editar el programa de sellos (nombre, sellos requeridos, premio)
+// ---------------------------------------------------------------------------
+function ProgramEditDialog({
+  program,
+  open,
+  onClose,
+  reload,
+}: {
+  program: Program;
+  open: boolean;
+  onClose: () => void;
+  reload: () => void;
+}) {
+  const [name, setName] = useState(program.name);
+  const [required, setRequired] = useState(program.stamps_required);
+  const [reward, setReward] = useState(program.reward_description);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setName(program.name);
+      setRequired(program.stamps_required);
+      setReward(program.reward_description);
+    }
+  }, [open, program]);
+
+  async function save() {
+    if (name.trim().length < 1 || reward.trim().length < 1) {
+      return toast.error("Completa el nombre y el premio.");
+    }
+    setSaving(true);
+    try {
+      const token = await getAccessToken();
+      await updateProgramFn({
+        data: {
+          token,
+          programId: program.id,
+          name: name.trim(),
+          stamps_required: required,
+          reward_description: reward.trim(),
+        },
+      });
+      toast.success("Programa actualizado");
+      onClose();
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Editar programa de sellos</DialogTitle>
+          <DialogDescription>
+            Cambia el nombre, cuántos sellos se necesitan y el premio. Se refleja en las tarjetas.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="grid gap-1.5">
+            <Label>Nombre del programa</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label>Sellos para el premio</Label>
+              <Input
+                type="number"
+                min={1}
+                max={30}
+                value={required}
+                onChange={(e) => setRequired(Number(e.target.value))}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Premio</Label>
+              <Input value={reward} onChange={(e) => setReward(e.target.value)} maxLength={120} />
+            </div>
+          </div>
+          <p className="rounded-lg bg-muted/50 p-2 text-[11px] text-muted-foreground">
+            Nota: si cambias los sellos requeridos, el contador de cada cliente se ajusta en su
+            próximo sello. Los clientes con sellos suficientes podrán canjear.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? "Guardando…" : "Guardar cambios"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -830,6 +983,152 @@ function MemberMessageDialog({
               <Send className="h-4 w-4" /> {sending ? "Enviando…" : "Enviar a Wallet"}
             </Button>
           </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Editar la información de un cliente
+// ---------------------------------------------------------------------------
+function MemberEditDialog({
+  member,
+  onClose,
+  reload,
+}: {
+  member: Member | null;
+  onClose: () => void;
+  reload: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (member) {
+      setName(member.full_name);
+      setPhone(member.phone ?? "");
+      setEmail(member.email ?? "");
+    }
+  }, [member]);
+
+  if (!member) return null;
+
+  async function save() {
+    if (!member) return;
+    if (name.trim().length < 2) return toast.error("Escribe el nombre del cliente.");
+    setSaving(true);
+    try {
+      const token = await getAccessToken();
+      await updateMemberFn({
+        data: {
+          token,
+          memberId: member.id,
+          full_name: name.trim(),
+          phone: phone.trim() || null,
+          email: email.trim() || null,
+        },
+      });
+      toast.success("Cliente actualizado");
+      onClose();
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={!!member} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Editar cliente</DialogTitle>
+          <DialogDescription>Actualiza los datos de {member.full_name}.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="grid gap-1.5">
+            <Label>Nombre</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label>WhatsApp</Label>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+57…" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Email</Label>
+              <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="correo@…" />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? "Guardando…" : "Guardar"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Eliminar la tarjeta de un cliente
+// ---------------------------------------------------------------------------
+function MemberDeleteDialog({
+  member,
+  onClose,
+  reload,
+}: {
+  member: Member | null;
+  onClose: () => void;
+  reload: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  if (!member) return null;
+
+  async function del() {
+    if (!member) return;
+    setBusy(true);
+    try {
+      const token = await getAccessToken();
+      await deleteMemberFn({ data: { token, memberId: member.id } });
+      toast.success("Tarjeta eliminada");
+      onClose();
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={!!member} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Eliminar tarjeta</DialogTitle>
+          <DialogDescription>
+            Se eliminará a <strong>{member.full_name}</strong> y su historial de sellos. Su pase se
+            marcará como expirado en Google Wallet. No se puede deshacer.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            Cancelar
+          </Button>
+          <Button
+            className="bg-red-600 text-white hover:bg-red-700"
+            onClick={del}
+            disabled={busy}
+          >
+            {busy ? "Eliminando…" : "Sí, eliminar"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

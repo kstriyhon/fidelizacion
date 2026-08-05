@@ -20,6 +20,7 @@ import {
   ensureProgramClass,
   pushStampUpdate,
   pushMessage,
+  patchLoyaltyObject,
 } from "./wallet/google.server";
 
 async function loadMemberContext(memberId: string): Promise<{
@@ -403,6 +404,49 @@ export const updateStampMessageFn = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/** Edita el programa de sellos (nombre, sellos requeridos, premio) y re-aprovisiona. */
+export const updateProgramFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      programId: z.string().uuid(),
+      name: z.string().trim().min(1).max(60),
+      stamps_required: z.number().int().min(1).max(30),
+      reward_description: z.string().trim().min(1).max(120),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const { businessId } = await requireProgramAccess(data.token, data.programId);
+    const db = getSupabaseAdmin();
+    const { error } = await db
+      .from("loyalty_programs")
+      .update({
+        name: data.name,
+        stamps_required: data.stamps_required,
+        reward_description: data.reward_description,
+      })
+      .eq("id", data.programId);
+    if (error) throw new Error(error.message);
+
+    // Re-aprovisiona la clase para reflejar el nuevo nombre/premio en el pase.
+    try {
+      const { data: business } = await db
+        .from("loyalty_businesses")
+        .select("*")
+        .eq("id", businessId)
+        .single();
+      const { data: program } = await db
+        .from("loyalty_programs")
+        .select("*")
+        .eq("id", data.programId)
+        .single();
+      if (business && program) await ensureProgramClass(program as Program, business as Business);
+    } catch (err) {
+      console.warn("re-provision tras editar programa:", err);
+    }
+    return { ok: true };
+  });
+
 /** Edita el mensaje de bienvenida (al inscribirse). */
 export const updateWelcomeMessageFn = createServerFn({ method: "POST" })
   .validator(
@@ -537,6 +581,58 @@ export const redeemRewardFn = createServerFn({ method: "POST" })
       },
     );
     return { member: updated as Member, push };
+  });
+
+/** Edita la información de un cliente (dueño o admin). */
+export const updateMemberFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      memberId: z.string().uuid(),
+      full_name: z.string().trim().min(2).max(80),
+      phone: z.string().trim().max(30).nullable(),
+      email: z.string().trim().email().nullable().or(z.literal("")),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireMemberAccess(data.token, data.memberId);
+    const db = getSupabaseAdmin();
+    const { data: updated, error } = await db
+      .from("loyalty_members")
+      .update({
+        full_name: data.full_name,
+        phone: data.phone || null,
+        email: data.email || null,
+      })
+      .eq("id", data.memberId)
+      .select("*")
+      .single();
+    if (error || !updated) throw new Error(`No se pudo actualizar: ${error?.message ?? ""}`);
+
+    // Actualiza el nombre en el pase (best-effort).
+    try {
+      await patchLoyaltyObject(data.memberId, { accountName: data.full_name });
+    } catch (err) {
+      console.warn("patch member name:", err);
+    }
+    return { member: updated as Member };
+  });
+
+/** Elimina la tarjeta de un cliente (dueño o admin) y expira su pase de Google. */
+export const deleteMemberFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), memberId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireMemberAccess(data.token, data.memberId);
+    // Expira el pase para que desaparezca del teléfono del cliente (best-effort).
+    try {
+      await patchLoyaltyObject(data.memberId, { state: "EXPIRED" });
+    } catch (err) {
+      console.warn("expire member object:", err);
+    }
+    const db = getSupabaseAdmin();
+    const { error } = await db.from("loyalty_members").delete().eq("id", data.memberId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });
 
 /** Mensaje puntual a un cliente (dueño o admin). */

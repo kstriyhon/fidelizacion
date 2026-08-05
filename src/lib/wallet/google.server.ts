@@ -274,6 +274,25 @@ export async function pushStampUpdate(
 }
 
 /**
+ * PATCH genérico del LoyaltyObject de un cliente (ej. accountName, state).
+ * No falla si el objeto no existe (404). En mock no hace nada.
+ */
+export async function patchLoyaltyObject(
+  memberId: string,
+  patch: Record<string, unknown>,
+): Promise<{ ok: boolean; mock: boolean }> {
+  const cfg = getWalletConfig();
+  if (cfg.mode === "mock") return { ok: false, mock: true };
+  const objectId = objectIdFor(cfg, memberId);
+  const token = await getAccessToken(cfg);
+  const res = await api(token, "PATCH", `/loyaltyObject/${objectId}`, patch);
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`patch object ${res.status}: ${await res.text()}`);
+  }
+  return { ok: res.ok, mock: false };
+}
+
+/**
  * Envía un mensaje puntual a la tarjeta de un cliente (sin cambiar sellos).
  * Útil para felicitaciones de cumpleaños, promos personales, etc. Dispara push.
  */
