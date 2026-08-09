@@ -15,10 +15,13 @@ import {
   Pause,
   Play,
   Trash2,
+  UserPlus,
+  UserX,
 } from "lucide-react";
 
 import { useSession, signOut, getAccessToken } from "@/lib/auth";
 import { isAdminEmail } from "@/lib/admins";
+import { isNewMember, isInactiveMember } from "@/lib/metrics";
 import type { Business, Member, Program } from "@/lib/data";
 import {
   adminListFn,
@@ -156,6 +159,9 @@ function AdminPanel() {
       b.programs.reduce((m, p) => m + p.members.reduce((s, mem) => s + mem.rewards_redeemed, 0), 0),
     0,
   );
+  const allMembers = (rows ?? []).flatMap((b) => b.programs.flatMap((p) => p.members));
+  const totalNuevos = allMembers.filter((m) => isNewMember(m)).length;
+  const totalInactivos = allMembers.filter((m) => isInactiveMember(m, 30)).length;
 
   return (
     <div className="min-h-screen bg-background px-6 py-8">
@@ -178,11 +184,13 @@ function AdminPanel() {
         </div>
 
         {/* Resumen */}
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <StatCard icon={Store} label="Negocios" value={rows?.length ?? "—"} />
           <StatCard icon={Users} label="Clientes" value={totalMembers ?? "—"} />
+          <StatCard icon={UserPlus} label="Nuevos (30d)" value={rows ? totalNuevos : "—"} />
           <StatCard icon={Stamp} label="Sellos activos" value={totalStamps ?? "—"} />
-          <StatCard icon={Gift} label="Premios canjeados" value={totalRewards ?? "—"} />
+          <StatCard icon={Gift} label="Premios" value={totalRewards ?? "—"} />
+          <StatCard icon={UserX} label="Inactivos (30d)" value={rows ? totalInactivos : "—"} />
         </div>
 
         <div className="mt-8 flex items-center justify-between">

@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 import { useSession, signOut, getAccessToken } from "@/lib/auth";
+import { computeMetrics, isInactiveMember, isNewMember } from "@/lib/metrics";
 import type { Business, Member, Program } from "@/lib/data";
 import {
   addStampFn,
@@ -260,6 +261,22 @@ export function Dashboard({
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [programEditOpen, setProgramEditOpen] = useState(false);
+  const [inactiveDays, setInactiveDays] = useState(30);
+  const [memberFilter, setMemberFilter] = useState<"all" | "new" | "inactive">("all");
+  const [search, setSearch] = useState("");
+
+  const required = program?.stamps_required ?? 1;
+  const metrics = computeMetrics(members, () => required, { inactiveDays });
+  const q = search.trim().toLowerCase();
+  const shownMembers = members.filter((m) => {
+    if (memberFilter === "new" && !isNewMember(m)) return false;
+    if (memberFilter === "inactive" && !isInactiveMember(m, inactiveDays)) return false;
+    if (q && !`${m.full_name} ${m.phone ?? ""} ${m.email ?? ""}`.toLowerCase().includes(q)) {
+      return false;
+    }
+    return true;
+  });
+
   const enrollUrl =
     typeof window !== "undefined" ? `${window.location.origin}/unirse/${business.slug}` : "";
 
@@ -365,6 +382,15 @@ export function Dashboard({
           </div>
         ) : null}
 
+        {/* Métricas */}
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <MetricCard label="Clientes" value={metrics.total} />
+          <MetricCard label="Nuevos (30d)" value={metrics.nuevos} />
+          <MetricCard label="Sellos dados" value={metrics.sellosDados} />
+          <MetricCard label="Premios" value={metrics.premios} />
+          <MetricCard label="Inactivos" value={metrics.inactivos} warn={metrics.inactivos > 0} />
+        </div>
+
         <div className="mt-6 grid gap-6 md:grid-cols-[1fr_320px]">
           {/* Miembros */}
           <div>
@@ -392,18 +418,85 @@ export function Dashboard({
                 </Button>
               </div>
             </div>
+
+            {/* Buscador + filtros */}
+            {members.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar por nombre, teléfono o email…"
+                  className="h-8 text-sm"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  {(
+                    [
+                      { k: "all", label: `Todos (${metrics.total})` },
+                      { k: "new", label: `Nuevos (${metrics.nuevos})` },
+                      { k: "inactive", label: `Inactivos (${metrics.inactivos})` },
+                    ] as const
+                  ).map((f) => (
+                    <Button
+                      key={f.k}
+                      size="sm"
+                      variant={memberFilter === f.k ? "default" : "outline"}
+                      className="h-7"
+                      onClick={() => setMemberFilter(f.k)}
+                    >
+                      {f.label}
+                    </Button>
+                  ))}
+                  {memberFilter === "inactive" ? (
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      sin volver en
+                      <select
+                        value={inactiveDays}
+                        onChange={(e) => setInactiveDays(Number(e.target.value))}
+                        className="h-7 rounded-md border border-input bg-transparent px-2"
+                      >
+                        <option value={15}>15 días</option>
+                        <option value={30}>30 días</option>
+                        <option value={60}>60 días</option>
+                        <option value={90}>90 días</option>
+                      </select>
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
             {members.length === 0 ? (
               <div className="mt-3 rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
                 Aún no hay clientes. Comparte el QR de inscripción para que se registren.
               </div>
+            ) : shownMembers.length === 0 ? (
+              <div className="mt-3 rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+                {memberFilter === "inactive"
+                  ? "No hay clientes inactivos en esta ventana. 🎉"
+                  : "Ningún cliente coincide con el filtro/búsqueda."}
+              </div>
             ) : (
               <ul className="mt-3 divide-y rounded-xl border">
-                {members.map((m) => {
+                {shownMembers.map((m) => {
                   const done = program ? m.stamps >= program.stamps_required : false;
+                  const inactive = isInactiveMember(m, inactiveDays);
+                  const nuevo = isNewMember(m);
                   return (
                     <li key={m.id} className="flex flex-wrap items-center justify-between gap-3 p-3">
                       <div className="min-w-0">
-                        <p className="truncate font-medium">{m.full_name}</p>
+                        <p className="flex items-center gap-2 truncate font-medium">
+                          {m.full_name}
+                          {nuevo ? (
+                            <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+                              Nuevo
+                            </span>
+                          ) : null}
+                          {inactive ? (
+                            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                              Inactivo
+                            </span>
+                          ) : null}
+                        </p>
                         <p className="text-xs text-muted-foreground">
                           {m.stamps}/{program?.stamps_required ?? "?"} sellos · {m.rewards_redeemed} premios
                         </p>
@@ -1303,6 +1396,19 @@ function LocationEditor({ business, reload }: { business: Business; reload: () =
 // ---------------------------------------------------------------------------
 // Editor del mensaje de bienvenida (al inscribirse)
 // ---------------------------------------------------------------------------
+function MetricCard({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
+  return (
+    <div className={`rounded-xl border bg-card p-3 ${warn ? "border-amber-500/40" : ""}`}>
+      <p
+        className={`text-xl font-bold leading-none ${warn ? "text-amber-600 dark:text-amber-400" : ""}`}
+      >
+        {value}
+      </p>
+      <p className="mt-1 text-[11px] text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
 function WelcomeMessageEditor({ program, reload }: { program: Program; reload: () => void }) {
   const [text, setText] = useState(program.welcome_message ?? "");
   const [saving, setSaving] = useState(false);
