@@ -247,3 +247,284 @@ export const getReferralSummaryFn = createServerFn({
     return { pending, activated, claimed, totalReward };
   },
 });
+
+// ---------------------------------------------------------------------------
+// ADMIN PANEL FUNCTIONS
+// ---------------------------------------------------------------------------
+
+/** Obtiene dashboard admin del gimnasio para un programa. */
+export const getGymAdminDashboardFn = createServerFn({
+  method: "POST",
+  async handler(input: { programId: string }) {
+    const db = getSupabaseAdmin();
+
+    // Obtener programa y negocio
+    const { data: program } = await db
+      .from("loyalty_programs")
+      .select("*")
+      .eq("id", input.programId)
+      .single();
+
+    if (!program) throw new Error("Programa no encontrado");
+
+    const { data: business } = await db
+      .from("loyalty_businesses")
+      .select("*")
+      .eq("id", program.business_id)
+      .single();
+
+    // Obtener todos los miembros del programa
+    const { data: members } = await db
+      .from("loyalty_members")
+      .select("*")
+      .eq("program_id", input.programId);
+
+    // Obtener membresías de todos los miembros
+    const { data: memberships } = await db
+      .from("gym_memberships")
+      .select("*")
+      .in(
+        "member_id",
+        members?.map((m) => m.id) ?? [],
+      );
+
+    // Obtener asistencias del mes actual
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const { data: attendance } = await db
+      .from("gym_attendance")
+      .select("*")
+      .gte("timestamp_at", monthStart.toISOString())
+      .in(
+        "member_id",
+        members?.map((m) => m.id) ?? [],
+      );
+
+    // Obtener configuración del programa
+    const { data: config } = await db
+      .from("gym_program_config")
+      .select("*")
+      .eq("program_id", input.programId)
+      .single();
+
+    // Obtener referrals activos
+    const { data: referrals } = await db
+      .from("gym_referrals")
+      .select("*")
+      .in(
+        "referrer_id",
+        members?.map((m) => m.id) ?? [],
+      );
+
+    return {
+      program,
+      business,
+      members: members ?? [],
+      memberships: memberships ?? [],
+      attendance: attendance ?? [],
+      config: config ?? null,
+      referrals: referrals ?? [],
+    };
+  },
+});
+
+/** Crea o renueva membresía para un miembro. */
+export const createMembershipFn = createServerFn({
+  method: "POST",
+  async handler(input: { memberId: string; type: "monthly" | "quarterly" | "annual" }) {
+    const db = getSupabaseAdmin();
+
+    // Obtener configuración del programa
+    const { data: member } = await db
+      .from("loyalty_members")
+      .select("program_id")
+      .eq("id", input.memberId)
+      .single();
+
+    if (!member) throw new Error("Miembro no encontrado");
+
+    const { data: config } = await db
+      .from("gym_program_config")
+      .select("*")
+      .eq("program_id", member.program_id)
+      .single();
+
+    if (!config) throw new Error("Configuración del programa no encontrada");
+
+    const daysMap = {
+      monthly: config.monthly_days,
+      quarterly: config.quarterly_days,
+      annual: config.annual_days,
+    };
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + daysMap[input.type]);
+
+    const { data, error } = await db
+      .from("gym_memberships")
+      .insert({
+        member_id: input.memberId,
+        membership_type: input.type,
+        expires_at: expiresAt.toISOString(),
+        payment_status: "up_to_date",
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Error al crear membresía: ${error.message}`);
+
+    return data;
+  },
+});
+
+/** Actualiza el estado de pago de una membresía. */
+export const updateMembershipPaymentStatusFn = createServerFn({
+  method: "POST",
+  async handler(input: {
+    membershipId: string;
+    status: "up_to_date" | "overdue" | "paused";
+  }) {
+    const db = getSupabaseAdmin();
+
+    const { data, error } = await db
+      .from("gym_memberships")
+      .update({
+        payment_status: input.status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", input.membershipId)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Error al actualizar membresía: ${error.message}`);
+
+    return data;
+  },
+});
+
+/** Obtiene el historial de asistencias de un miembro en un rango de fechas. */
+export const getMemberAttendanceHistoryFn = createServerFn({
+  method: "POST",
+  async handler(input: { memberId: string; startDate: string; endDate: string }) {
+    const db = getSupabaseAdmin();
+
+    const { data, error } = await db
+      .from("gym_attendance")
+      .select("*")
+      .eq("member_id", input.memberId)
+      .gte("timestamp_at", input.startDate)
+      .lte("timestamp_at", input.endDate)
+      .order("timestamp_at", { ascending: false });
+
+    if (error) throw new Error(`Error al obtener asistencias: ${error.message}`);
+
+    return data ?? [];
+  },
+});
+
+/** Actualiza la configuración del programa de gimnasio. */
+export const updateGymProgramConfigFn = createServerFn({
+  method: "POST",
+  async handler(input: {
+    programId: string;
+    monthlyDays?: number;
+    monthlyPrice?: number;
+    quarterlyDays?: number;
+    quarterlyPrice?: number;
+    annualDays?: number;
+    annualPrice?: number;
+    notifyDays?: number;
+    autoCheckin?: boolean;
+    autoCheckoutMinutes?: number;
+  }) {
+    const db = getSupabaseAdmin();
+
+    const updates: Record<string, any> = { updated_at: new Date().toISOString() };
+    if (input.monthlyDays !== undefined) updates.monthly_days = input.monthlyDays;
+    if (input.monthlyPrice !== undefined) updates.monthly_price = input.monthlyPrice;
+    if (input.quarterlyDays !== undefined) updates.quarterly_days = input.quarterlyDays;
+    if (input.quarterlyPrice !== undefined) updates.quarterly_price = input.quarterlyPrice;
+    if (input.annualDays !== undefined) updates.annual_days = input.annualDays;
+    if (input.annualPrice !== undefined) updates.annual_price = input.annualPrice;
+    if (input.notifyDays !== undefined) updates.notify_days = input.notifyDays;
+    if (input.autoCheckin !== undefined) updates.auto_checkin = input.autoCheckin;
+    if (input.autoCheckoutMinutes !== undefined)
+      updates.auto_checkout_minutes = input.autoCheckoutMinutes;
+
+    const { data, error } = await db
+      .from("gym_program_config")
+      .update(updates)
+      .eq("program_id", input.programId)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Error al actualizar configuración: ${error.message}`);
+
+    return data;
+  },
+});
+
+/** Obtiene reportes de asistencia del mes actual. */
+export const getMonthlyAttendanceReportFn = createServerFn({
+  method: "POST",
+  async handler(input: { programId: string }) {
+    const db = getSupabaseAdmin();
+
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const monthEnd = new Date();
+    monthEnd.setMonth(monthEnd.getMonth() + 1);
+    monthEnd.setDate(0);
+    monthEnd.setHours(23, 59, 59, 999);
+
+    // Obtener miembros del programa
+    const { data: members } = await db
+      .from("loyalty_members")
+      .select("*")
+      .eq("program_id", input.programId);
+
+    if (!members) return { totalMembers: 0, activeMembers: 0, attendedThisMonth: 0, data: [] };
+
+    const memberIds = members.map((m) => m.id);
+
+    // Obtener asistencias del mes
+    const { data: attendance } = await db
+      .from("gym_attendance")
+      .select("*")
+      .in("member_id", memberIds)
+      .gte("timestamp_at", monthStart.toISOString())
+      .lte("timestamp_at", monthEnd.toISOString());
+
+    // Contar miembros únicos que asistieron
+    const attendedSet = new Set<string>();
+    const attendanceByMember = new Map<string, number>();
+
+    attendance?.forEach((a) => {
+      if (a.event_type === "check_in") {
+        attendedSet.add(a.member_id);
+        attendanceByMember.set(a.member_id, (attendanceByMember.get(a.member_id) ?? 0) + 1);
+      }
+    });
+
+    const report = members
+      .map((member) => ({
+        id: member.id,
+        name: member.full_name,
+        attended: attendedSet.has(member.id),
+        sessions: attendanceByMember.get(member.id) ?? 0,
+      }))
+      .sort((a, b) => b.sessions - a.sessions);
+
+    return {
+      totalMembers: members.length,
+      activeMembers: attendedSet.size,
+      attendedThisMonth: attendedSet.size,
+      data: report,
+    };
+  },
+});
+
