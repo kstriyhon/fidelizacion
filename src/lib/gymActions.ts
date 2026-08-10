@@ -528,3 +528,127 @@ export const getMonthlyAttendanceReportFn = createServerFn({
   },
 });
 
+// ---------------------------------------------------------------------------
+// INSCRIPCIÓN PÚBLICA
+// ---------------------------------------------------------------------------
+
+/** Inscribe un nuevo miembro en un programa de gimnasio. */
+export const enrollGymMemberFn = createServerFn({
+  method: "POST",
+  async handler(input: {
+    programId: string;
+    fullName: string;
+    phone?: string;
+    email?: string;
+    referralCode?: string;
+  }) {
+    const db = getSupabaseAdmin();
+
+    // Validar programa
+    const { data: program, error: programError } = await db
+      .from("loyalty_programs")
+      .select("*")
+      .eq("id", input.programId)
+      .single();
+
+    if (programError || !program) throw new Error("Programa no encontrado");
+
+    // Crear miembro
+    const { data: member, error: memberError } = await db
+      .from("loyalty_members")
+      .insert({
+        program_id: input.programId,
+        full_name: input.fullName.trim(),
+        phone: input.phone?.trim() || null,
+        email: input.email?.trim() || null,
+      })
+      .select()
+      .single();
+
+    if (memberError || !member) throw new Error("Error al crear miembro");
+
+    // Obtener configuración del programa para crear membresía
+    const { data: config } = await db
+      .from("gym_program_config")
+      .select("*")
+      .eq("program_id", input.programId)
+      .single();
+
+    // Crear membresía por defecto (monthly)
+    const expiresAt = new Date();
+    if (config) {
+      expiresAt.setDate(expiresAt.getDate() + config.monthly_days);
+    } else {
+      expiresAt.setDate(expiresAt.getDate() + 30);
+    }
+
+    const { data: membership, error: membershipError } = await db
+      .from("gym_memberships")
+      .insert({
+        member_id: member.id,
+        membership_type: "monthly",
+        expires_at: expiresAt.toISOString(),
+        payment_status: "up_to_date",
+      })
+      .select()
+      .single();
+
+    if (membershipError || !membership) throw new Error("Error al crear membresía");
+
+    // Si hay código de referido, activarlo
+    if (input.referralCode) {
+      const { data: referral } = await db
+        .from("gym_referrals")
+        .select("*")
+        .eq("referral_code", input.referralCode)
+        .eq("status", "pending")
+        .single();
+
+      if (referral) {
+        await db
+          .from("gym_referrals")
+          .update({
+            referree_id: member.id,
+            status: "activated",
+            activated_at: new Date().toISOString(),
+          })
+          .eq("id", referral.id);
+      }
+    }
+
+    return { member, membership };
+  },
+});
+
+/** Obtiene datos para la página de inscripción por referral code. */
+export const getReferralInscriptionDataFn = createServerFn({
+  method: "POST",
+  async handler(input: { referralCode: string }) {
+    const db = getSupabaseAdmin();
+
+    const { data: referral, error: refError } = await db
+      .from("gym_referrals")
+      .select("*, gym_referrals!referrer_id(loyalty_members!program_id)")
+      .eq("referral_code", input.referralCode)
+      .eq("status", "pending")
+      .single();
+
+    if (refError || !referral) throw new Error("Código de referido inválido o ya canjeado");
+
+    // Obtener datos del referrer (quien invitó)
+    const { data: referrer } = await db
+      .from("loyalty_members")
+      .select("*, loyalty_programs!program_id(*), loyalty_businesses!business_id(*)")
+      .eq("id", referral.referrer_id)
+      .single();
+
+    if (!referrer) throw new Error("Referidor no encontrado");
+
+    return {
+      referral,
+      referrer,
+      programId: referrer.program_id,
+    };
+  },
+});
+
