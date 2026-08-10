@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, notFound } from "@tanstack/react-router";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import {
@@ -24,6 +24,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export const Route = createFileRoute("/gym/$memberId")({
+  loader: async ({ params }) => {
+    try {
+      const data = await getGymMemberDashboardFn({ memberId: params.memberId });
+      if (!data.member || !data.program) throw notFound();
+      return data;
+    } catch (err) {
+      throw notFound();
+    }
+  },
   component: GymMemberDashboard,
 });
 
