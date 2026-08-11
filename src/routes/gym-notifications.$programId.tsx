@@ -23,6 +23,7 @@ import {
   getNotificationHistoryFn,
   triggerExpirationNotificationsFn,
   getExpirationMessage,
+  getWhatsAppUrl,
   DEFAULT_EXPIRATION_TEMPLATE,
   type GymNotification,
   type NotificationChannel,
@@ -56,6 +57,21 @@ const STATUS_STYLE: Record<string, string> = {
   failed: "bg-red-500/15 text-red-700 dark:text-red-400",
   bounced: "bg-red-500/15 text-red-700 dark:text-red-400",
 };
+
+/**
+ * Enlace wa.me para reenviar una notificación a mano.
+ * El disparo NO envía nada: solo registra la notificación y guarda el enlace en
+ * `metadata.whatsapp_url`. Si esa fila es antigua y no lo tiene, lo recomponemos
+ * con el teléfono actual del cliente. Sin teléfono no hay enlace posible.
+ */
+function whatsappLink(notif: GymNotification): string | null {
+  const stored = notif.metadata?.whatsapp_url;
+  if (typeof stored === "string" && stored) return stored;
+
+  const phone = notif.loyalty_members?.phone;
+  if (!phone) return null;
+  return getWhatsAppUrl(phone, notif.message);
+}
 
 const STATUS_LABEL: Record<string, string> = {
   sent: "✅ Enviada",
@@ -383,6 +399,7 @@ function NotificationsPage() {
                         <th className="px-4 py-3 text-left font-medium">Estado</th>
                         <th className="px-4 py-3 text-left font-medium">Fecha</th>
                         <th className="px-4 py-3 text-left font-medium">Mensaje</th>
+                        <th className="px-4 py-3 text-right font-medium">Enviar</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -425,6 +442,27 @@ function NotificationsPage() {
                             })}
                           </td>
                           <td className="px-4 py-3 text-xs max-w-xs truncate">{notif.message}</td>
+                          <td className="px-4 py-3 text-right">
+                            {whatsappLink(notif) ? (
+                              <Button asChild size="sm" variant="outline">
+                                <a
+                                  href={whatsappLink(notif)!}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <MessageCircle className="w-4 h-4 mr-1" />
+                                  WhatsApp
+                                </a>
+                              </Button>
+                            ) : (
+                              <span
+                                className="text-xs text-muted-foreground"
+                                title="El cliente no tiene teléfono guardado"
+                              >
+                                sin teléfono
+                              </span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
