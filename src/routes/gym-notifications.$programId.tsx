@@ -32,13 +32,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const Route = createFileRoute("/gym-notifications/$programId")({
@@ -84,7 +77,7 @@ function NotificationsPage() {
 
   // Estado del formulario
   const [enabled, setEnabled] = useState(true);
-  const [channel, setChannel] = useState<NotificationChannel>("whatsapp");
+  // El canal no es configurable: solo WhatsApp está implementado.
   const [alertDays, setAlertDays] = useState(7);
   const [reminderMsg, setReminderMsg] = useState("");
   const [welcomeEnabled, setWelcomeEnabled] = useState(true);
@@ -102,7 +95,6 @@ function NotificationsPage() {
       const authToken = await getAccessToken();
       const cfg = await getNotificationConfigFn({ data: { programId, token: authToken } });
       setEnabled(cfg.enabled);
-      setChannel(cfg.preferred_channel);
       setAlertDays(cfg.alert_days);
       setReminderMsg(cfg.reminder_message ?? "");
       setWelcomeEnabled(cfg.send_welcome_msg);
@@ -134,7 +126,7 @@ function NotificationsPage() {
           programId,
           token: await getAccessToken(),
           enabled,
-          preferredChannel: channel,
+          preferredChannel: "whatsapp",
           alertDays,
           reminderMessage: reminderMsg,
           sendWelcomeMsg: welcomeEnabled,
@@ -267,22 +259,17 @@ function NotificationsPage() {
                   </div>
 
                   <div>
-                    <Label htmlFor="channel">Canal preferido</Label>
-                    <Select
-                      value={channel}
-                      onValueChange={(v) => setChannel(v as NotificationChannel)}
-                    >
-                      <SelectTrigger id="channel" className="mt-2">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                        <SelectItem value="sms">SMS</SelectItem>
-                        <SelectItem value="email">Email</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label>Canal</Label>
+                    {/* Sin selector: SMS y email no están implementados, y ofrecerlos
+                        hacía creer que se enviaba algo (el historial decía "enviada"
+                        pero no salía ningún mensaje). */}
+                    <div className="mt-2 flex h-9 items-center gap-2 rounded-md border bg-muted/50 px-3 text-sm">
+                      <MessageCircle className="w-4 h-4" />
+                      WhatsApp
+                    </div>
                     <p className="text-xs text-muted-foreground mt-2">
-                      Hoy solo WhatsApp está implementado (enlace wa.me manual).
+                      El envío es manual: se genera un enlace wa.me que abre el chat con
+                      el mensaje ya escrito.
                     </p>
                   </div>
 
