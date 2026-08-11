@@ -23,21 +23,12 @@ import type { Member, Program } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export const Route = createFileRoute("/gym/$memberId")({
-  loader: async ({ params }) => {
-    try {
-      const data = await getGymMemberDashboardFn({ memberId: params.memberId });
-      if (!data.member || !data.program) throw notFound();
-      return data;
-    } catch (err) {
-      throw notFound();
-    }
-  },
+export const Route = createFileRoute("/gym-member/$id")({
   component: GymMemberDashboard,
 });
 
 function GymMemberDashboard() {
-  const { memberId } = Route.useParams();
+  const { id: memberId } = Route.useParams();
   const navigate = useNavigate();
 
   const [member, setMember] = useState<Member | null>(null);
@@ -46,21 +37,26 @@ function GymMemberDashboard() {
   const [sessions, setSessions] = useState<AttendanceSession[]>([]);
   const [referrals, setReferrals] = useState<Referral[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [checkingIn, setCheckingIn] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
 
   const load = async () => {
     setLoading(true);
+    setError(null);
     try {
-      const data = await getGymMemberDashboardFn({ memberId });
+      const data = await getGymMemberDashboardFn({ data: { memberId } });
+      console.log("Dashboard data:", data);
       setMember(data.member);
       setProgram(data.program);
       setMembership(data.membership);
-      setSessions(data.recentSessions);
-      setReferrals(data.referrals);
+      setSessions(data.recentSessions || []);
+      setReferrals(data.referrals || []);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error al cargar datos");
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error("Error loading dashboard:", errorMsg);
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -73,7 +69,7 @@ function GymMemberDashboard() {
   const handleCheckIn = async () => {
     setCheckingIn(true);
     try {
-      await checkInMemberFn({ memberId });
+      await checkInMemberFn({ data: { memberId } });
       toast.success("✅ Entrada registrada");
       await load();
     } catch (err) {
@@ -86,7 +82,7 @@ function GymMemberDashboard() {
   const handleCheckOut = async () => {
     setCheckingOut(true);
     try {
-      const result = await checkOutMemberFn({ memberId });
+      const result = await checkOutMemberFn({ data: { memberId } });
       toast.success(`✅ Salida registrada (${result.durationMinutes} min)`);
       await load();
     } catch (err) {
@@ -107,6 +103,16 @@ function GymMemberDashboard() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-muted-foreground">Cargando...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 p-8">
+        <h1 className="text-2xl font-bold text-red-600">Error</h1>
+        <p className="text-muted-foreground">{error}</p>
+        <Button onClick={() => navigate({ to: "/" })}>Volver al inicio</Button>
       </div>
     );
   }
@@ -255,7 +261,11 @@ function GymMemberDashboard() {
               <MetricBox
                 icon={<Clock className="w-4 h-4" />}
                 label="Duración promedio"
-                value={metrics.avg_duration_minutes ? `${metrics.avg_duration_minutes}m` : "—"}
+                value={
+                  metrics.avg_duration_minutes != null
+                    ? `${metrics.avg_duration_minutes}m`
+                    : "—"
+                }
               />
               <MetricBox
                 icon={<Calendar className="w-4 h-4" />}
@@ -272,8 +282,10 @@ function GymMemberDashboard() {
                   <li key={session.date} className="flex items-center justify-between text-sm p-2 bg-secondary/50 rounded">
                     <span>{new Date(session.date).toLocaleDateString("es-ES", { weekday: "short", month: "short", day: "numeric" })}</span>
                     <span className="text-muted-foreground">
-                      {session.check_in && session.check_in.split("T")[1].substring(0, 5)}
-                      {session.duration_minutes && ` • ${session.duration_minutes}m`}
+                      {session.check_in ? session.check_in.split("T")[1].substring(0, 5) : null}
+                      {session.duration_minutes != null
+                        ? ` • ${session.duration_minutes}m`
+                        : null}
                     </span>
                   </li>
                 ))}

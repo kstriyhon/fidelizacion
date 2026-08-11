@@ -13,10 +13,10 @@ import { Label } from "@/components/ui/label";
 export const Route = createFileRoute("/gym-referir/$code")({
   loader: async ({ params }) => {
     try {
-      const data = await getReferralInscriptionDataFn({ referralCode: params.code });
+      const data = await getReferralInscriptionDataFn({ data: { referralCode: params.code } });
       return data;
     } catch (err) {
-      console.error("Error loading referral data:", err);
+      console.error("Error loading referral:", err);
       throw notFound();
     }
   },
@@ -24,7 +24,7 @@ export const Route = createFileRoute("/gym-referir/$code")({
 });
 
 function GymReferralEnrollPage() {
-  const { referral, referrer, programId } = Route.useLoaderData();
+  const loaderData = Route.useLoaderData() as any;
   const navigate = useNavigate();
 
   const [step, setStep] = useState<"form" | "processing" | "success">("form");
@@ -34,6 +34,19 @@ function GymReferralEnrollPage() {
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{ member: Member; dashboardUrl: string } | null>(null);
 
+  if (!loaderData || !loaderData.referral) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-600 mb-4">Código de referido no encontrado</p>
+          <Button onClick={() => navigate({ to: "/" })}>Volver</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const { referral, referrer } = loaderData;
+
   const rewardLabel =
     referral.reward_type === "discount"
       ? `${referral.reward_value}% de descuento`
@@ -41,7 +54,7 @@ function GymReferralEnrollPage() {
         ? `${referral.reward_value} sellos`
         : `${referral.reward_value} días gratis`;
 
-  async function handleSubmit(e: React.FormEvent) {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
       toast.error("Escribe tu nombre completo");
@@ -57,14 +70,16 @@ function GymReferralEnrollPage() {
 
     try {
       const res = await enrollGymMemberFn({
-        fullName: name.trim(),
-        phone: phone.trim(),
-        email: email.trim() || undefined,
-        programId,
-        referralCode: referral.referral_code,
+        data: {
+          fullName: name.trim(),
+          phone: phone.trim(),
+          email: email.trim() || undefined,
+          programId: loaderData.programId,
+          referralCode: referral.referral_code,
+        },
       });
 
-      const dashboardUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/gym/${res.member.id}`;
+      const dashboardUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/gym-member/${res.member.id}`;
       setResult({ member: res.member, dashboardUrl });
       setStep("success");
     } catch (err) {
@@ -73,12 +88,12 @@ function GymReferralEnrollPage() {
     } finally {
       setSaving(false);
     }
-  }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-primary/5 px-4 py-8">
       <div className="mx-auto max-w-md">
-        {/* Header con referrer */}
+        {/* Header */}
         <div className="mb-8 text-center space-y-2">
           <div className="flex justify-center mb-4">
             <div
@@ -105,23 +120,20 @@ function GymReferralEnrollPage() {
           </p>
         </div>
 
-        {/* Reward Badge */}
+        {/* Reward */}
         <div className="mb-6 rounded-xl border-2 border-primary/50 bg-primary/5 p-4 text-center space-y-2">
-          <div className="flex justify-center">
-            <Gift className="w-6 h-6 text-primary" />
-          </div>
+          <Gift className="w-6 h-6 text-primary mx-auto" />
           <p className="text-sm font-medium">Recompensa especial</p>
           <p className="text-lg font-bold">{rewardLabel}</p>
-          <p className="text-xs text-muted-foreground">Se activará cuando completes tu membresía</p>
         </div>
 
-        {/* Step 1: Formulario */}
+        {/* Step 1: Form */}
         {step === "form" && (
           <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-4">
             <div>
               <h2 className="text-lg font-bold">Únete ahora</h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Completa tus datos para acceder a tu membresía
+                Completa tus datos para activar tu membresía
               </p>
             </div>
 
@@ -169,38 +181,18 @@ function GymReferralEnrollPage() {
                 {!saving && <ArrowRight className="w-4 h-4 ml-2" />}
               </Button>
             </form>
-
-            <div className="border-t pt-4 space-y-2 text-xs text-muted-foreground">
-              <div className="flex items-center gap-2">
-                <span>✓</span>
-                <span>Tu recompensa se activará automáticamente</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span>✓</span>
-                <span>Acceso inmediato a tu dashboard</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span>✓</span>
-                <span>Control de asistencia y referidos</span>
-              </div>
-            </div>
           </div>
         )}
 
-        {/* Step 2: Procesando */}
+        {/* Step 2: Processing */}
         {step === "processing" && (
           <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-4 text-center">
-            <div className="flex justify-center">
-              <div className="animate-spin">⏳</div>
-            </div>
+            <div className="animate-spin">⏳</div>
             <p className="font-medium">Procesando tu inscripción...</p>
-            <p className="text-sm text-muted-foreground">
-              Estamos activando tu membresía y procesando tu recompensa
-            </p>
           </div>
         )}
 
-        {/* Step 3: Éxito */}
+        {/* Step 3: Success */}
         {step === "success" && result && (
           <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-4">
             <div className="flex justify-center">
@@ -216,20 +208,17 @@ function GymReferralEnrollPage() {
               </p>
             </div>
 
-            {/* Reward Confirmation */}
             <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 text-center">
               <p className="text-sm text-muted-foreground mb-1">Tu recompensa:</p>
               <p className="text-lg font-bold text-green-600">{rewardLabel}</p>
             </div>
 
-            {/* QR Code */}
             <div className="flex justify-center py-4">
               <div className="bg-white p-3 rounded-lg">
                 <QRCodeSVG value={result.dashboardUrl} size={150} level="H" includeMargin />
               </div>
             </div>
 
-            {/* Buttons */}
             <div className="space-y-2">
               <Button
                 className="w-full"
@@ -241,41 +230,13 @@ function GymReferralEnrollPage() {
                 variant="outline"
                 className="w-full"
                 onClick={() => {
-                  const text = `¡Acabo de inscribirme en ${referrer.loyalty_businesses?.name}! Usa este código para obtener ${rewardLabel}: ${referral.referral_code}`;
-                  window.open(
-                    `https://wa.me/?text=${encodeURIComponent(text)}`,
-                    "_blank",
-                  );
+                  const text = `¡Acabo de inscribirme en ${referrer.loyalty_businesses?.name}! ${result.dashboardUrl}`;
+                  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
                 }}
               >
                 <Share2 className="w-4 h-4 mr-2" />
-                Compartir con otros
+                Compartir
               </Button>
-            </div>
-
-            {/* Referrer Info */}
-            <div className="border-t pt-4">
-              <p className="text-xs text-muted-foreground mb-3">Gracias a tu referidor:</p>
-              <div className="bg-muted/50 rounded-lg p-3 text-center">
-                <p className="font-medium text-sm">{referrer.full_name}</p>
-                <p className="text-xs text-muted-foreground">También recibió su recompensa</p>
-              </div>
-            </div>
-
-            {/* Data Summary */}
-            <div className="space-y-1 text-xs text-muted-foreground pt-4">
-              <div className="flex justify-between">
-                <span>Nombre:</span>
-                <span className="font-medium text-foreground">{result.member.full_name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>ID Miembro:</span>
-                <span className="font-mono text-[10px]">{result.member.id.slice(0, 8)}...</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Código usado:</span>
-                <span className="font-mono">{referral.referral_code}</span>
-              </div>
             </div>
           </div>
         )}

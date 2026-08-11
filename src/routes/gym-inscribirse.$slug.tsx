@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createFileRoute, notFound, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Dumbbell, CheckCircle2, ArrowRight, Share2 } from "lucide-react";
@@ -10,89 +10,82 @@ import { enrollGymMemberFn } from "@/lib/gymActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/gym-inscribirse/$slug")({
-  loader: async ({ params }) => {
-    const { data: business } = await supabase
-      .from("loyalty_businesses")
-      .select("*")
-      .eq("slug", params.slug)
-      .maybeSingle();
-
-    if (!business) throw notFound();
-
-    const { data: program } = await supabase
-      .from("loyalty_programs")
-      .select("*")
-      .eq("business_id", business.id)
-      .eq("active", true)
-      .order("created_at")
-      .limit(1)
-      .maybeSingle();
-
-    if (!program) throw notFound();
-
-    const { data: config } = await supabase
-      .from("gym_program_config")
-      .select("*")
-      .eq("program_id", program.id)
-      .maybeSingle();
-
-    return {
-      business: business as Business,
-      program: program as Program,
-      config: config ?? null,
-    };
-  },
   component: GymEnrollPage,
 });
 
 function GymEnrollPage() {
-  const { business, program, config } = Route.useLoaderData();
+  const { slug } = Route.useParams();
   const navigate = useNavigate();
+
+  const [business, setBusiness] = useState<Business | null>(null);
+  const [program, setProgram] = useState<Program | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const [step, setStep] = useState<"form" | "membership" | "success">("form");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [selectedMembership, setSelectedMembership] = useState<
-    "monthly" | "quarterly" | "annual" | null
-  >(null);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{ member: Member; dashboardUrl: string } | null>(null);
 
-  const membershipOptions = [
-    {
-      type: "monthly" as const,
-      label: "Mensual",
-      duration: config?.monthly_days ?? 30,
-      price: config?.monthly_price,
-      icon: "📅",
-    },
-    {
-      type: "quarterly" as const,
-      label: "Trimestral",
-      duration: config?.quarterly_days ?? 90,
-      price: config?.quarterly_price,
-      icon: "📊",
-    },
-    {
-      type: "annual" as const,
-      label: "Anual",
-      duration: config?.annual_days ?? 365,
-      price: config?.annual_price,
-      icon: "⭐",
-    },
-  ];
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const { data: businessData } = await supabase
+          .from("loyalty_businesses")
+          .select("*")
+          .eq("slug", slug)
+          .maybeSingle();
 
-  async function handleFormSubmit(e: React.FormEvent) {
+        if (!businessData) throw new Error("Negocio no encontrado");
+
+        const { data: programData } = await supabase
+          .from("loyalty_programs")
+          .select("*")
+          .eq("business_id", businessData.id)
+          .eq("active", true)
+          .order("created_at")
+          .limit(1)
+          .maybeSingle();
+
+        if (!programData) throw new Error("Programa no encontrado");
+
+        setBusiness(businessData as Business);
+        setProgram(programData as Program);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        setError(errorMsg);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [slug]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-muted-foreground">Cargando...</div>
+      </div>
+    );
+  }
+
+  if (error || !business || !program) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-600 mb-4">{error || "No se encontró el negocio"}</p>
+          <Button onClick={() => navigate({ to: "/" })}>Volver</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
       toast.error("Escribe tu nombre completo");
@@ -103,29 +96,29 @@ function GymEnrollPage() {
       return;
     }
     setStep("membership");
-  }
+  };
 
-  async function handleSelectMembership(type: "monthly" | "quarterly" | "annual") {
-    setSelectedMembership(type);
+  const handleSelectMembership = async () => {
     setSaving(true);
     try {
       const res = await enrollGymMemberFn({
-        fullName: name.trim(),
-        phone: phone.trim(),
-        email: email.trim() || undefined,
-        programId: program.id,
+        data: {
+          fullName: name.trim(),
+          phone: phone.trim(),
+          email: email.trim() || undefined,
+          programId: program.id,
+        },
       });
 
-      const dashboardUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/gym/${res.member.id}`;
+      const dashboardUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/gym-member/${res.member.id}`;
       setResult({ member: res.member, dashboardUrl });
       setStep("success");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al inscribirse");
-      setSelectedMembership(null);
     } finally {
       setSaving(false);
     }
-  }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-primary/5 px-4 py-8">
@@ -165,7 +158,7 @@ function GymEnrollPage() {
                 <Label htmlFor="name">Nombre completo</Label>
                 <Input
                   id="name"
-                  placeholder="Juan García Ramírez"
+                  placeholder="Tu nombre"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="mt-2"
@@ -201,75 +194,43 @@ function GymEnrollPage() {
               </Button>
             </form>
 
-            {/* Info */}
             <div className="border-t pt-4 text-xs text-muted-foreground space-y-1">
               <p>✓ Acceso inmediato a tu dashboard</p>
               <p>✓ Check-in y control de asistencia</p>
-              <p>✓ Sistema de referidos con recompensas</p>
+              <p>✓ Sistema de referidos</p>
             </div>
           </div>
         )}
 
-        {/* Step 2: Seleccionar Membresía */}
+        {/* Step 2: Confirmación */}
         {step === "membership" && (
           <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-4">
             <div>
-              <h2 className="text-lg font-bold">Elige tu membresía</h2>
+              <h2 className="text-lg font-bold">Confirmar inscripción</h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Hola {name.split(" ")[0]} 👋 Selecciona el plan que se ajuste a ti
+                Hola {name.split(" ")[0]} 👋 ¿Todo correcto?
               </p>
             </div>
 
-            <div className="space-y-3">
-              {membershipOptions.map((option) => (
-                <button
-                  key={option.type}
-                  onClick={() => handleSelectMembership(option.type)}
-                  disabled={saving || selectedMembership === option.type}
-                  className={`w-full rounded-lg border-2 p-4 transition-all text-left ${
-                    selectedMembership === option.type
-                      ? "border-primary bg-primary/5"
-                      : "border-border hover:border-primary/50"
-                  } ${saving ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xl">{option.icon}</span>
-                        <p className="font-semibold">{option.label}</p>
-                        {option.type === "annual" && (
-                          <span className="text-xs bg-green-500/20 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full font-medium">
-                            Mejor valor
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-sm text-muted-foreground">{option.duration} días de acceso</p>
-                    </div>
-                    {option.price && (
-                      <p className="text-lg font-bold" style={{ color: business.brand_color }}>
-                        ${option.price}
-                      </p>
-                    )}
-                  </div>
-
-                  {selectedMembership === option.type && saving && (
-                    <div className="flex items-center gap-2 mt-3 text-sm text-muted-foreground">
-                      <div className="animate-spin">⏳</div>
-                      <span>Procesando...</span>
-                    </div>
-                  )}
-                </button>
-              ))}
+            <div className="bg-muted/50 p-4 rounded space-y-2 text-sm">
+              <p><strong>Nombre:</strong> {name}</p>
+              <p><strong>Teléfono:</strong> {phone}</p>
+              {email && <p><strong>Email:</strong> {email}</p>}
             </div>
 
-            <Button
-              variant="ghost"
-              className="w-full"
-              onClick={() => setStep("form")}
-              disabled={saving}
-            >
-              ← Atrás
-            </Button>
+            <div className="space-y-2">
+              <Button onClick={handleSelectMembership} disabled={saving} className="w-full">
+                {saving ? "Procesando..." : "Crear mi cuenta"}
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full"
+                onClick={() => setStep("form")}
+                disabled={saving}
+              >
+                ← Atrás
+              </Button>
+            </div>
           </div>
         )}
 
@@ -283,13 +244,12 @@ function GymEnrollPage() {
             </div>
 
             <div className="text-center space-y-2">
-              <h2 className="text-lg font-bold">¡Bienvenido al gimnasio!</h2>
+              <h2 className="text-lg font-bold">¡Bienvenido!</h2>
               <p className="text-sm text-muted-foreground">
-                Tu cuenta ha sido creada exitosamente. Accede a tu dashboard usando el QR o link abajo.
+                Tu cuenta ha sido creada. Accede a tu dashboard.
               </p>
             </div>
 
-            {/* QR Code */}
             <div className="flex justify-center py-4">
               <div className="bg-white p-3 rounded-lg">
                 <QRCodeSVG
@@ -301,22 +261,10 @@ function GymEnrollPage() {
               </div>
             </div>
 
-            {/* Dashboard Link */}
-            <div className="bg-muted/50 rounded-lg p-3 space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Tu dashboard:</p>
-              <input
-                type="text"
-                readOnly
-                value={result.dashboardUrl}
-                className="w-full text-xs bg-background border rounded px-2 py-1 font-mono"
-              />
-            </div>
-
-            {/* Buttons */}
             <div className="space-y-2">
               <Button
                 className="w-full"
-                onClick={() => window.location.href = result.dashboardUrl}
+                onClick={() => (window.location.href = result.dashboardUrl)}
               >
                 Ir a mi dashboard
               </Button>
@@ -324,32 +272,13 @@ function GymEnrollPage() {
                 variant="outline"
                 className="w-full"
                 onClick={() => {
-                  const text = `¡Acabo de inscribirme en ${business.name}! Accede a tu dashboard: ${result.dashboardUrl}`;
-                  window.open(
-                    `https://wa.me/?text=${encodeURIComponent(text)}`,
-                    "_blank",
-                  );
+                  const text = `¡Acabo de inscribirme en ${business.name}! ${result.dashboardUrl}`;
+                  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
                 }}
               >
                 <Share2 className="w-4 h-4 mr-2" />
-                Compartir por WhatsApp
+                Compartir
               </Button>
-            </div>
-
-            {/* Data Summary */}
-            <div className="border-t pt-4 space-y-2 text-xs text-muted-foreground">
-              <div className="flex justify-between">
-                <span>Nombre:</span>
-                <span className="font-medium text-foreground">{result.member.full_name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>ID Miembro:</span>
-                <span className="font-mono text-[10px]">{result.member.id.slice(0, 8)}...</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Membresía:</span>
-                <span className="font-medium text-foreground">Activa</span>
-              </div>
             </div>
           </div>
         )}

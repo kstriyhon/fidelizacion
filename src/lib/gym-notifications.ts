@@ -1,16 +1,29 @@
 // Sistema de notificaciones para vencimientos y recordatorios del gimnasio.
+//
+// Igual que gymActions.ts: las server functions usan el builder de TanStack Start
+// (`createServerFn({method}).validator(schema).handler(async ({data}) => …)`) y se
+// invocan como `fn({ data: {…} })`. La lógica vive en helpers planos para que
+// `triggerExpirationNotificationsFn` los llame directo, sin pasar por RPC.
+
 import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { getSupabaseAdmin } from "./supabaseAdmin.server";
 import type { Membership } from "./gym-data";
 import type { Member } from "./data";
 
-const DAY = 24 * 60 * 60 * 1000; // milliseconds
+const DAY = 24 * 60 * 60 * 1000; // milisegundos
 
 // ---------------------------------------------------------------------------
 // Tipos
 // ---------------------------------------------------------------------------
 
-export type NotificationType = "expiration_reminder" | "welcome" | "referral_activated" | "reward_claimed";
+export type NotificationType =
+  | "expiration_reminder"
+  | "welcome"
+  | "referral_activated"
+  | "reward_claimed";
 export type NotificationChannel = "whatsapp" | "sms" | "email";
 export type NotificationStatus = "pending" | "sent" | "failed" | "bounced";
 
@@ -24,10 +37,14 @@ export type GymNotification = {
   status: NotificationStatus;
   retry_count: number;
   provider_response: string | null;
+  // jsonb en Postgres: contenido libre (hoy guardamos `whatsapp_url`).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   metadata: Record<string, any> | null;
   created_at: string;
   sent_at: string | null;
   updated_at: string;
+  // Presente cuando la consulta incluye el embed del miembro.
+  loyalty_members?: { id: string; full_name: string; phone: string | null } | null;
 };
 
 export type NotificationConfig = {
@@ -45,10 +62,10 @@ export type NotificationConfig = {
 };
 
 // ---------------------------------------------------------------------------
-// Funciones de utilidad
+// Utilidades puras (también se usan desde el cliente)
 // ---------------------------------------------------------------------------
 
-/** Interpola variables en mensaje de notificación. */
+/** Interpola variables {clave} en una plantilla. */
 export function interpolateMessage(
   template: string,
   variables: Record<string, string | number>,
@@ -60,14 +77,18 @@ export function interpolateMessage(
   return message;
 }
 
-/** Genera URL de WhatsApp para testing (wa.me). */
+/** URL de WhatsApp (wa.me) con el teléfono saneado. */
 export function getWhatsAppUrl(phone: string, message: string): string {
-  const encoded = encodeURIComponent(message);
-  const cleanPhone = phone.replace(/[^\d]/g, "");
-  return `https://wa.me/${cleanPhone}?text=${encoded}`;
+  return `https://wa.me/${phone.replace(/[^\d]/g, "")}?text=${encodeURIComponent(message)}`;
 }
 
-/** Obtiene mensaje de vencimiento personalizado. */
+export const DEFAULT_EXPIRATION_TEMPLATE =
+  "Hola {nombre}, tu membresía en {negocio} vence en {dias} días ({fecha}). Renuévala ahora para no perder acceso 💪";
+
+export const DEFAULT_WELCOME_TEMPLATE =
+  "¡Bienvenido {nombre} a {negocio}! 🏋️ Tu membresía está activa. Accede a tu dashboard para ver tu código de referido y compartir con amigos 💪";
+
+/** Mensaje de vencimiento (usa la plantilla del programa si la hay). */
 export function getExpirationMessage(
   memberName: string,
   daysLeft: number,
@@ -75,354 +96,339 @@ export function getExpirationMessage(
   businessName: string,
   customTemplate?: string,
 ): string {
-  const defaultTemplate =
-    "Hola {nombre}, tu membresía en {negocio} vence en {dias} días ({fecha}). Renuévala ahora para no perder acceso 💪";
-
-  const template = customTemplate || defaultTemplate;
-  const variables = {
+  return interpolateMessage(customTemplate || DEFAULT_EXPIRATION_TEMPLATE, {
     nombre: memberName,
     dias: daysLeft,
     fecha: expirationDate.toLocaleDateString("es-ES"),
     negocio: businessName,
-  };
-
-  return interpolateMessage(template, variables);
+  });
 }
 
-/** Obtiene mensaje de bienvenida personalizado. */
+/** Mensaje de bienvenida (usa la plantilla del programa si la hay). */
 export function getWelcomeMessage(
   memberName: string,
   businessName: string,
   customTemplate?: string,
 ): string {
-  const defaultTemplate =
-    "¡Bienvenido {nombre} a {negocio}! 🏋️ Tu membresía está activa. Accede a tu dashboard para ver tu código de referido y compartir con amigos 💪";
-
-  const template = customTemplate || defaultTemplate;
-  const variables = {
-    nombre: memberName.split(" ")[0], // Solo nombre de pila
+  return interpolateMessage(customTemplate || DEFAULT_WELCOME_TEMPLATE, {
+    nombre: memberName.split(" ")[0], // solo el nombre de pila
     negocio: businessName,
-  };
-
-  return interpolateMessage(template, variables);
+  });
 }
 
 // ---------------------------------------------------------------------------
-// Funciones de servidor
+// Helpers de servidor (lógica compartida, sin pasar por RPC)
 // ---------------------------------------------------------------------------
 
-/** Obtiene membresías próximas a vencer. */
-export const getExpiringMembershipsForNotificationFn = createServerFn({
-  method: "POST",
-  async handler(input: { programId: string; alertDays: number; limit?: number }) {
-    const db = getSupabaseAdmin();
+type ExpiringMembership = Membership & { loyalty_members: Member };
 
-    const now = new Date();
-    const notifyBefore = new Date(now.getTime() + input.alertDays * DAY);
-    const notifyAfter = new Date(now.getTime() - 1 * DAY); // No más viejas de 1 día
+/** Lee la config del programa; si no existe, la crea con los defaults. */
+async function loadOrCreateConfig(
+  db: SupabaseClient,
+  programId: string,
+): Promise<NotificationConfig> {
+  const { data: existing, error } = await db
+    .from("gym_notification_config")
+    .select("*")
+    .eq("program_id", programId)
+    .maybeSingle();
 
-    // Obtener membresías activas próximas a vencer
-    const { data: memberships, error } = await db
-      .from("gym_memberships")
-      .select(
-        `
-        *,
-        loyalty_members!member_id (
-          id,
-          full_name,
-          phone,
-          email,
-          program_id
-        )
-      `,
-      )
-      .eq("loyalty_members.program_id", input.programId)
-      .gte("expires_at", notifyAfter.toISOString())
-      .lte("expires_at", notifyBefore.toISOString())
-      .order("expires_at", { ascending: true })
-      .limit(input.limit ?? 100);
+  if (error) throw new Error(`Error al leer configuración: ${error.message}`);
+  if (existing) return existing as NotificationConfig;
 
-    if (error) throw new Error(`Error fetching memberships: ${error.message}`);
+  const { data: created, error: insertError } = await db
+    .from("gym_notification_config")
+    .insert({ program_id: programId })
+    .select()
+    .single();
 
-    return (memberships ?? []) as Array<
-      Membership & {
-        loyalty_members: Member;
-      }
-    >;
-  },
-});
+  if (insertError) throw new Error(`Error al crear configuración: ${insertError.message}`);
+  return created as NotificationConfig;
+}
 
-/** Envía notificación de vencimiento por WhatsApp. */
-export const sendExpirationNotificationFn = createServerFn({
-  method: "POST",
-  async handler(input: {
+/** Membresías del programa que vencen dentro de `alertDays`. */
+async function loadExpiringMemberships(
+  db: SupabaseClient,
+  programId: string,
+  alertDays: number,
+  limit = 100,
+): Promise<ExpiringMembership[]> {
+  const now = Date.now();
+  const notifyBefore = new Date(now + alertDays * DAY);
+  const notifyAfter = new Date(now - DAY); // ignora las vencidas hace más de 1 día
+
+  // `!inner` es obligatorio para poder FILTRAR por una columna del embed
+  // (loyalty_members.program_id). Sin él PostgREST no restringe las filas.
+  const { data, error } = await db
+    .from("gym_memberships")
+    .select("*, loyalty_members!inner(id, full_name, phone, email, program_id)")
+    .eq("loyalty_members.program_id", programId)
+    .gte("expires_at", notifyAfter.toISOString())
+    .lte("expires_at", notifyBefore.toISOString())
+    .order("expires_at", { ascending: true })
+    .limit(limit);
+
+  if (error) throw new Error(`Error al buscar membresías: ${error.message}`);
+  return (data ?? []) as ExpiringMembership[];
+}
+
+/** Guarda una notificación en el historial. */
+async function recordNotification(
+  db: SupabaseClient,
+  input: {
     memberId: string;
-    membershipId: string;
+    membershipId?: string | null;
+    type: NotificationType;
+    channel: NotificationChannel;
     phone: string;
     message: string;
-    programId: string;
-  }) {
-    const db = getSupabaseAdmin();
-
-    // Registrar notificación
-    const { data: notification, error: notifError } = await db
-      .from("gym_notifications")
-      .insert({
-        member_id: input.memberId,
-        membership_id: input.membershipId,
-        notification_type: "expiration_reminder",
-        channel: "whatsapp",
-        message: input.message,
-        status: "sent", // En demo, simplemente marcamos como enviado
-        sent_at: new Date().toISOString(),
-        metadata: {
-          whatsapp_url: getWhatsAppUrl(input.phone, input.message),
-        },
-      })
-      .select()
-      .single();
-
-    if (notifError) throw new Error(`Error recording notification: ${notifError.message}`);
-
-    return notification;
   },
-});
+) {
+  const { data, error } = await db
+    .from("gym_notifications")
+    .insert({
+      member_id: input.memberId,
+      membership_id: input.membershipId ?? null,
+      notification_type: input.type,
+      channel: input.channel,
+      message: input.message,
+      // Demo: no hay proveedor real todavía; el envío es manual vía wa.me.
+      status: "sent",
+      sent_at: new Date().toISOString(),
+      metadata: { whatsapp_url: getWhatsAppUrl(input.phone, input.message) },
+    })
+    .select()
+    .single();
 
-/** Envía notificación de bienvenida. */
-export const sendWelcomeNotificationFn = createServerFn({
-  method: "POST",
-  async handler(input: {
-    memberId: string;
-    memberName: string;
-    phone: string;
-    businessName: string;
-    message: string;
-  }) {
+  if (error) throw new Error(`Error al registrar notificación: ${error.message}`);
+  return data as GymNotification;
+}
+
+/** Nombre del negocio dueño del programa (para los mensajes). */
+async function loadBusinessName(db: SupabaseClient, programId: string): Promise<string> {
+  const { data: program } = await db
+    .from("loyalty_programs")
+    .select("business_id")
+    .eq("id", programId)
+    .maybeSingle();
+  if (!program) return "el gimnasio";
+
+  const { data: business } = await db
+    .from("loyalty_businesses")
+    .select("name")
+    .eq("id", program.business_id)
+    .maybeSingle();
+
+  return business?.name ?? "el gimnasio";
+}
+
+// ---------------------------------------------------------------------------
+// Server functions
+// ---------------------------------------------------------------------------
+
+const programIdSchema = z.object({ programId: z.string().uuid() });
+
+/** Membresías próximas a vencer de un programa. */
+export const getExpiringMembershipsForNotificationFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      programId: z.string().uuid(),
+      alertDays: z.number().int().min(1).max(30),
+      limit: z.number().int().positive().optional(),
+    }),
+  )
+  .handler(async ({ data }) =>
+    loadExpiringMemberships(getSupabaseAdmin(), data.programId, data.alertDays, data.limit),
+  );
+
+/** Registra una notificación de vencimiento. */
+export const sendExpirationNotificationFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      memberId: z.string().uuid(),
+      membershipId: z.string().uuid(),
+      phone: z.string().min(1),
+      message: z.string().min(1),
+      channel: z.enum(["whatsapp", "sms", "email"]).optional(),
+    }),
+  )
+  .handler(async ({ data }) =>
+    recordNotification(getSupabaseAdmin(), {
+      memberId: data.memberId,
+      membershipId: data.membershipId,
+      type: "expiration_reminder",
+      channel: data.channel ?? "whatsapp",
+      phone: data.phone,
+      message: data.message,
+    }),
+  );
+
+/** Registra una notificación de bienvenida. */
+export const sendWelcomeNotificationFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      memberId: z.string().uuid(),
+      phone: z.string().min(1),
+      message: z.string().min(1),
+      channel: z.enum(["whatsapp", "sms", "email"]).optional(),
+    }),
+  )
+  .handler(async ({ data }) =>
+    recordNotification(getSupabaseAdmin(), {
+      memberId: data.memberId,
+      type: "welcome",
+      channel: data.channel ?? "whatsapp",
+      phone: data.phone,
+      message: data.message,
+    }),
+  );
+
+/** Config de notificaciones del programa (la crea con defaults si no existe). */
+export const getNotificationConfigFn = createServerFn({ method: "POST" })
+  .validator(programIdSchema)
+  .handler(async ({ data }) => loadOrCreateConfig(getSupabaseAdmin(), data.programId));
+
+/** Guarda la config de notificaciones (upsert: puede no existir la fila). */
+export const updateNotificationConfigFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      programId: z.string().uuid(),
+      enabled: z.boolean().optional(),
+      preferredChannel: z.enum(["whatsapp", "sms", "email"]).optional(),
+      alertDays: z.number().int().min(1).max(30).optional(),
+      reminderMessage: z.string().optional(),
+      sendWelcomeMsg: z.boolean().optional(),
+      welcomeMessage: z.string().optional(),
+      notificationTime: z.string().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
     const db = getSupabaseAdmin();
 
-    const { data: notification, error } = await db
-      .from("gym_notifications")
-      .insert({
-        member_id: input.memberId,
-        notification_type: "welcome",
-        channel: "whatsapp",
-        message: input.message,
-        status: "sent",
-        sent_at: new Date().toISOString(),
-        metadata: {
-          whatsapp_url: getWhatsAppUrl(input.phone, input.message),
-        },
-      })
-      .select()
-      .single();
+    const row: Record<string, unknown> = {
+      program_id: data.programId,
+      updated_at: new Date().toISOString(),
+    };
+    if (data.enabled !== undefined) row.enabled = data.enabled;
+    if (data.preferredChannel !== undefined) row.preferred_channel = data.preferredChannel;
+    if (data.alertDays !== undefined) row.alert_days = data.alertDays;
+    if (data.reminderMessage !== undefined) row.reminder_message = data.reminderMessage || null;
+    if (data.sendWelcomeMsg !== undefined) row.send_welcome_msg = data.sendWelcomeMsg;
+    if (data.welcomeMessage !== undefined) row.welcome_message = data.welcomeMessage || null;
+    if (data.notificationTime !== undefined) row.notification_time = data.notificationTime;
 
-    if (error) throw new Error(`Error sending welcome: ${error.message}`);
-
-    return notification;
-  },
-});
-
-/** Obtiene configuración de notificaciones de un programa. */
-export const getNotificationConfigFn = createServerFn({
-  method: "POST",
-  async handler(input: { programId: string }) {
-    const db = getSupabaseAdmin();
-
-    const { data, error } = await db
+    const { data: saved, error } = await db
       .from("gym_notification_config")
-      .select("*")
-      .eq("program_id", input.programId)
-      .single();
-
-    if (error) {
-      // Si no existe, crear con defaults
-      if (error.code === "PGRST116") {
-        const { data: created } = await db
-          .from("gym_notification_config")
-          .insert({
-            program_id: input.programId,
-            enabled: true,
-            preferred_channel: "whatsapp",
-            alert_days: 7,
-            send_welcome_msg: true,
-            notification_time: "09:00",
-          })
-          .select()
-          .single();
-        return created as NotificationConfig;
-      }
-      throw new Error(`Error fetching config: ${error.message}`);
-    }
-
-    return data as NotificationConfig;
-  },
-});
-
-/** Actualiza configuración de notificaciones. */
-export const updateNotificationConfigFn = createServerFn({
-  method: "POST",
-  async handler(input: {
-    programId: string;
-    enabled?: boolean;
-    preferredChannel?: NotificationChannel;
-    alertDays?: number;
-    reminderMessage?: string;
-    sendWelcomeMsg?: boolean;
-    welcomeMessage?: string;
-    notificationTime?: string;
-  }) {
-    const db = getSupabaseAdmin();
-
-    const updates: Record<string, any> = { updated_at: new Date().toISOString() };
-    if (input.enabled !== undefined) updates.enabled = input.enabled;
-    if (input.preferredChannel) updates.preferred_channel = input.preferredChannel;
-    if (input.alertDays !== undefined) updates.alert_days = input.alertDays;
-    if (input.reminderMessage !== undefined) updates.reminder_message = input.reminderMessage;
-    if (input.sendWelcomeMsg !== undefined) updates.send_welcome_msg = input.sendWelcomeMsg;
-    if (input.welcomeMessage !== undefined) updates.welcome_message = input.welcomeMessage;
-    if (input.notificationTime) updates.notification_time = input.notificationTime;
-
-    const { data, error } = await db
-      .from("gym_notification_config")
-      .update(updates)
-      .eq("program_id", input.programId)
+      .upsert(row, { onConflict: "program_id" })
       .select()
       .single();
 
-    if (error) throw new Error(`Error updating config: ${error.message}`);
+    if (error) throw new Error(`Error al guardar configuración: ${error.message}`);
+    return saved as NotificationConfig;
+  });
 
-    return data as NotificationConfig;
-  },
-});
-
-/** Dispara notificaciones de vencimiento para un programa. (para testing/cron) */
-export const triggerExpirationNotificationsFn = createServerFn({
-  method: "POST",
-  async handler(input: { programId: string }) {
+/** Dispara las notificaciones de vencimiento del programa (manual / cron). */
+export const triggerExpirationNotificationsFn = createServerFn({ method: "POST" })
+  .validator(programIdSchema)
+  .handler(async ({ data }) => {
     const db = getSupabaseAdmin();
-
-    // Obtener configuración
-    const config = await getNotificationConfigFn({ programId: input.programId });
+    const config = await loadOrCreateConfig(db, data.programId);
 
     if (!config.enabled) {
       return { sent: 0, skipped: 0, failed: 0, message: "Notificaciones deshabilitadas" };
     }
 
-    // Obtener membresías próximas a vencer
-    const expiringMemberships = await getExpiringMembershipsForNotificationFn({
-      programId: input.programId,
-      alertDays: config.alert_days,
-    });
+    const expiring = await loadExpiringMemberships(db, data.programId, config.alert_days);
+    const businessName = await loadBusinessName(db, data.programId);
 
     let sent = 0;
     let skipped = 0;
     let failed = 0;
 
-    for (const membership of expiringMemberships) {
+    for (const membership of expiring) {
       try {
         const member = membership.loyalty_members;
+        if (!member?.phone) {
+          skipped++;
+          continue;
+        }
 
-        // Verificar si ya se envió notificación recientemente (en últimas 24h)
-        const { data: recentNotifications } = await db
+        // No repetir el aviso si ya se mandó uno en las últimas 24 h.
+        const { data: recent } = await db
           .from("gym_notifications")
           .select("id")
           .eq("membership_id", membership.id)
           .eq("notification_type", "expiration_reminder")
           .eq("channel", config.preferred_channel)
-          .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+          .gte("created_at", new Date(Date.now() - DAY).toISOString());
 
-        if (recentNotifications && recentNotifications.length > 0) {
+        if (recent && recent.length > 0) {
           skipped++;
           continue;
         }
 
-        if (!member.phone) {
-          skipped++;
-          continue;
-        }
-
-        // Calcular días restantes
         const expiresAt = new Date(membership.expires_at);
         const daysLeft = Math.ceil((expiresAt.getTime() - Date.now()) / DAY);
 
-        // Obtener datos del negocio
-        const { data: program } = await db
-          .from("loyalty_programs")
-          .select("*, loyalty_businesses!business_id(*)")
-          .eq("id", member.program_id)
-          .single();
-
-        if (!program) {
-          failed++;
-          continue;
-        }
-
-        // Generar mensaje
         const message = getExpirationMessage(
           member.full_name,
           daysLeft,
           expiresAt,
-          program.loyalty_businesses?.name ?? "el gimnasio",
+          businessName,
           config.reminder_message ?? undefined,
         );
 
-        // Enviar notificación
-        await sendExpirationNotificationFn({
+        await recordNotification(db, {
           memberId: member.id,
           membershipId: membership.id,
+          type: "expiration_reminder",
+          channel: config.preferred_channel,
           phone: member.phone,
           message,
-          programId: input.programId,
         });
 
         sent++;
       } catch (err) {
-        console.error("Error sending notification:", err);
+        console.error("Error enviando notificación:", err);
         failed++;
       }
     }
 
     return { sent, skipped, failed };
-  },
-});
+  });
 
-/** Obtiene historial de notificaciones. */
-export const getNotificationHistoryFn = createServerFn({
-  method: "POST",
-  async handler(input: { memberId?: string; programId?: string; limit?: number }) {
+/** Historial de notificaciones (por miembro o por programa). */
+export const getNotificationHistoryFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      memberId: z.string().uuid().optional(),
+      programId: z.string().uuid().optional(),
+      limit: z.number().int().positive().max(200).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
     const db = getSupabaseAdmin();
 
     let query = db
       .from("gym_notifications")
-      .select(
-        `
-        *,
-        loyalty_members!member_id (id, full_name, phone)
-      `,
-      )
+      .select("*, loyalty_members!member_id(id, full_name, phone)")
       .order("created_at", { ascending: false })
-      .limit(input.limit ?? 50);
+      .limit(data.limit ?? 50);
 
-    if (input.memberId) {
-      query = query.eq("member_id", input.memberId);
+    if (data.memberId) query = query.eq("member_id", data.memberId);
+
+    if (data.programId) {
+      const { data: members } = await db
+        .from("loyalty_members")
+        .select("id")
+        .eq("program_id", data.programId);
+
+      const ids = (members ?? []).map((m) => m.id);
+      if (ids.length === 0) return [] as GymNotification[];
+      query = query.in("member_id", ids);
     }
 
-    if (input.programId) {
-      query = query.in(
-        "member_id",
-        (
-          await db
-            .from("loyalty_members")
-            .select("id")
-            .eq("program_id", input.programId)
-        ).data?.map((m) => m.id) ?? [],
-      );
-    }
-
-    const { data, error } = await query;
-
-    if (error) throw new Error(`Error fetching history: ${error.message}`);
-
-    return data ?? [];
-  },
-});
+    const { data: rows, error } = await query;
+    if (error) throw new Error(`Error al leer historial: ${error.message}`);
+    return (rows ?? []) as GymNotification[];
+  });

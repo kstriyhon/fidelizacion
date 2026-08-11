@@ -17,27 +17,18 @@ import {
   RefreshCw,
 } from "lucide-react";
 
-import { useSession, signOut, getAccessToken } from "@/lib/auth";
+import { useSession, signOut } from "@/lib/auth";
 import {
   getGymAdminDashboardFn,
   createMembershipFn,
   updateMembershipPaymentStatusFn,
   getMonthlyAttendanceReportFn,
-  updateGymProgramConfigFn,
 } from "@/lib/gymActions";
-import { computeAttendanceMetrics } from "@/lib/gym-metrics";
-import type { Membership, AttendanceSession } from "@/lib/gym-data";
+import type { Membership } from "@/lib/gym-data";
 import type { Member, Program } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,9 +54,8 @@ function GymAdminPanel() {
   const [program, setProgram] = useState<Program | null>(null);
   const [members, setMembers] = useState<MemberWithMembership[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [newMemberDialog, setNewMemberDialog] = useState(false);
-  const [selectedMember, setSelectedMember] = useState<MemberWithMembership | null>(null);
   const [report, setReport] = useState<any>(null);
   const [statsLoading, setStatsLoading] = useState(false);
 
@@ -75,16 +65,16 @@ function GymAdminPanel() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const data = await getGymAdminDashboardFn({ programId });
+      const data = await getGymAdminDashboardFn({ data: { programId } });
       setProgram(data.program);
 
-      // Enriquecer miembros con membresías y asistencia
-      const memberMap = new Map(data.memberships.map((m) => [m.member_id, m]));
+      const memberMap = new Map(data.memberships.map((m: any) => [m.member_id, m]));
       const attendanceByMember = new Map<string, Set<string>>();
       const lastAttendanceByMember = new Map<string, string>();
 
-      data.attendance.forEach((a) => {
+      data.attendance.forEach((a: any) => {
         if (a.event_type === "check_in") {
           const date = a.timestamp_at.split("T")[0];
           if (!attendanceByMember.has(a.member_id)) {
@@ -95,7 +85,7 @@ function GymAdminPanel() {
         }
       });
 
-      const enrichedMembers = data.members.map((m) => ({
+      const enrichedMembers = data.members.map((m: any) => ({
         ...m,
         membership: memberMap.get(m.id) ?? null,
         lastAttendance: lastAttendanceByMember.get(m.id) ?? null,
@@ -104,7 +94,9 @@ function GymAdminPanel() {
 
       setMembers(enrichedMembers);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error al cargar datos");
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -114,34 +106,10 @@ function GymAdminPanel() {
     if (session) load();
   }, [session, load]);
 
-  const handleCreateMembership = async (member: MemberWithMembership, type: string) => {
-    try {
-      await createMembershipFn({ memberId: member.id, type: type as any });
-      toast.success(`Membresía ${type} creada`);
-      await load();
-      setSelectedMember(null);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error");
-    }
-  };
-
-  const handleUpdatePaymentStatus = async (
-    membershipId: string,
-    status: "up_to_date" | "overdue" | "paused",
-  ) => {
-    try {
-      await updateMembershipPaymentStatusFn({ membershipId, status });
-      toast.success("Estado actualizado");
-      await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error");
-    }
-  };
-
   const handleGenerateReport = async () => {
     setStatsLoading(true);
     try {
-      const data = await getMonthlyAttendanceReportFn({ programId });
+      const data = await getMonthlyAttendanceReportFn({ data: { programId } });
       setReport(data);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error");
@@ -177,13 +145,20 @@ function GymAdminPanel() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-red-600">Error: {error}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <div className="border-b bg-card sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">{program?.name}</h1>
+            <h1 className="text-2xl font-bold">{program?.name || "Gimnasio"}</h1>
             <p className="text-sm text-muted-foreground">Panel administrativo</p>
           </div>
           <Button variant="ghost" size="sm" onClick={() => signOut()}>
@@ -193,9 +168,7 @@ function GymAdminPanel() {
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <KPICard
             icon={<Users className="w-5 h-5" />}
@@ -224,7 +197,6 @@ function GymAdminPanel() {
           />
         </div>
 
-        {/* Tabs */}
         <Tabs defaultValue="members" className="space-y-4">
           <TabsList>
             <TabsTrigger value="members">
@@ -235,13 +207,8 @@ function GymAdminPanel() {
               <FileText className="w-4 h-4 mr-2" />
               Reportes
             </TabsTrigger>
-            <TabsTrigger value="settings">
-              <Settings className="w-4 h-4 mr-2" />
-              Configuración
-            </TabsTrigger>
           </TabsList>
 
-          {/* Members Tab */}
           <TabsContent value="members" className="space-y-4">
             <div className="flex gap-2">
               <Input
@@ -265,7 +232,6 @@ function GymAdminPanel() {
                       <th className="px-4 py-3 text-left font-medium">Vencimiento</th>
                       <th className="px-4 py-3 text-left font-medium">Estado</th>
                       <th className="px-4 py-3 text-left font-medium">Sesiones</th>
-                      <th className="px-4 py-3 text-right font-medium">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -356,60 +322,6 @@ function GymAdminPanel() {
                               <p className="text-xs text-muted-foreground">este mes</p>
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-right">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
-                                  <MoreVertical className="w-4 h-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                {!membership ? (
-                                  <>
-                                    <DropdownMenuItem
-                                      onClick={() => handleCreateMembership(member, "monthly")}
-                                    >
-                                      Crear membresía mensual
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() => handleCreateMembership(member, "quarterly")}
-                                    >
-                                      Crear membresía trimestral
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() => handleCreateMembership(member, "annual")}
-                                    >
-                                      Crear membresía anual
-                                    </DropdownMenuItem>
-                                  </>
-                                ) : (
-                                  <>
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        handleUpdatePaymentStatus(membership.id, "up_to_date")
-                                      }
-                                    >
-                                      ✅ Marcar como al día
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        handleUpdatePaymentStatus(membership.id, "paused")
-                                      }
-                                    >
-                                      ⏸️ Pausar
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        handleUpdatePaymentStatus(membership.id, "overdue")
-                                      }
-                                    >
-                                      ⚠️ Marcar vencida
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </td>
                         </tr>
                       );
                     })}
@@ -419,7 +331,6 @@ function GymAdminPanel() {
             </div>
           </TabsContent>
 
-          {/* Report Tab */}
           <TabsContent value="report" className="space-y-4">
             <div className="flex gap-2 mb-4">
               <Button onClick={handleGenerateReport} disabled={statsLoading}>
@@ -447,85 +358,8 @@ function GymAdminPanel() {
                     value={`${Math.round((report.attendedThisMonth / report.totalMembers) * 100)}%`}
                   />
                 </div>
-
-                <div className="rounded-lg border overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-muted border-b">
-                        <tr>
-                          <th className="px-4 py-3 text-left">Miembro</th>
-                          <th className="px-4 py-3 text-center">Sesiones</th>
-                          <th className="px-4 py-3 text-left">Estado</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {report.data.map((item: any) => (
-                          <tr key={item.id} className="hover:bg-muted/50">
-                            <td className="px-4 py-3 font-medium">{item.name}</td>
-                            <td className="px-4 py-3 text-center font-bold">{item.sessions}</td>
-                            <td className="px-4 py-3">
-                              <span
-                                className={`text-xs px-2 py-1 rounded ${
-                                  item.attended
-                                    ? "bg-green-500/15 text-green-700 dark:text-green-400"
-                                    : "bg-gray-500/15 text-gray-700 dark:text-gray-400"
-                                }`}
-                              >
-                                {item.attended ? "Asistió" : "No asistió"}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
               </div>
             )}
-          </TabsContent>
-
-          {/* Settings Tab */}
-          <TabsContent value="settings" className="space-y-4">
-            <div className="bg-card rounded-lg border p-6 max-w-2xl space-y-6">
-              <h3 className="text-lg font-semibold">Configuración de Membresías</h3>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium">Duración Mensual (días)</label>
-                  <Input type="number" defaultValue="30" />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Precio Mensual</label>
-                  <Input type="number" placeholder="0.00" step="0.01" />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Duración Trimestral (días)</label>
-                  <Input type="number" defaultValue="90" />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Precio Trimestral</label>
-                  <Input type="number" placeholder="0.00" step="0.01" />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Duración Anual (días)</label>
-                  <Input type="number" defaultValue="365" />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Precio Anual</label>
-                  <Input type="number" placeholder="0.00" step="0.01" />
-                </div>
-              </div>
-
-              <div className="border-t pt-6 space-y-4">
-                <h4 className="font-medium">Notificaciones</h4>
-                <div>
-                  <label className="text-sm font-medium">Alertar con X días antes del vencimiento</label>
-                  <Input type="number" defaultValue="7" min="1" max="30" />
-                </div>
-              </div>
-
-              <Button className="w-full">Guardar Configuración</Button>
-            </div>
           </TabsContent>
         </Tabs>
       </div>

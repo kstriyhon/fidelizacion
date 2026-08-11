@@ -14,9 +14,9 @@ import { Route as ComercioRouteImport } from './routes/comercio'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as UnirseSlugRouteImport } from './routes/unirse.$slug'
-import { Route as GymMemberIdRouteImport } from './routes/gym.$memberId'
 import { Route as GymReferirCodeRouteImport } from './routes/gym-referir.$code'
 import { Route as GymNotificationsProgramIdRouteImport } from './routes/gym-notifications.$programId'
+import { Route as GymMemberIdRouteImport } from './routes/gym-member.$id'
 import { Route as GymInscribirseSlugRouteImport } from './routes/gym-inscribirse.$slug'
 import { Route as GymAdminProgramIdRouteImport } from './routes/gym-admin.$programId'
 
@@ -45,11 +45,6 @@ const UnirseSlugRoute = UnirseSlugRouteImport.update({
   path: '/unirse/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const GymMemberIdRoute = GymMemberIdRouteImport.update({
-  id: '/$memberId',
-  path: '/$memberId',
-  getParentRoute: () => GymRoute,
-} as any)
 const GymReferirCodeRoute = GymReferirCodeRouteImport.update({
   id: '/gym-referir/$code',
   path: '/gym-referir/$code',
@@ -61,6 +56,11 @@ const GymNotificationsProgramIdRoute =
     path: '/gym-notifications/$programId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const GymMemberIdRoute = GymMemberIdRouteImport.update({
+  id: '/gym-member/$id',
+  path: '/gym-member/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GymInscribirseSlugRoute = GymInscribirseSlugRouteImport.update({
   id: '/gym-inscribirse/$slug',
   path: '/gym-inscribirse/$slug',
@@ -79,9 +79,9 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/gym-admin/$programId': typeof GymAdminProgramIdRoute
   '/gym-inscribirse/$slug': typeof GymInscribirseSlugRoute
+  '/gym-member/$id': typeof GymMemberIdRoute
   '/gym-notifications/$programId': typeof GymNotificationsProgramIdRoute
   '/gym-referir/$code': typeof GymReferirCodeRoute
-  '/gym/$memberId': typeof GymMemberIdRoute
   '/unirse/$slug': typeof UnirseSlugRoute
 }
 export interface FileRoutesByTo {
@@ -91,9 +91,9 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/gym-admin/$programId': typeof GymAdminProgramIdRoute
   '/gym-inscribirse/$slug': typeof GymInscribirseSlugRoute
+  '/gym-member/$id': typeof GymMemberIdRoute
   '/gym-notifications/$programId': typeof GymNotificationsProgramIdRoute
   '/gym-referir/$code': typeof GymReferirCodeRoute
-  '/gym/$memberId': typeof GymMemberIdRoute
   '/unirse/$slug': typeof UnirseSlugRoute
 }
 export interface FileRoutesById {
@@ -104,9 +104,9 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/gym-admin/$programId': typeof GymAdminProgramIdRoute
   '/gym-inscribirse/$slug': typeof GymInscribirseSlugRoute
+  '/gym-member/$id': typeof GymMemberIdRoute
   '/gym-notifications/$programId': typeof GymNotificationsProgramIdRoute
   '/gym-referir/$code': typeof GymReferirCodeRoute
-  '/gym/$memberId': typeof GymMemberIdRoute
   '/unirse/$slug': typeof UnirseSlugRoute
 }
 export interface FileRouteTypes {
@@ -118,9 +118,9 @@ export interface FileRouteTypes {
     | '/login'
     | '/gym-admin/$programId'
     | '/gym-inscribirse/$slug'
+    | '/gym-member/$id'
     | '/gym-notifications/$programId'
     | '/gym-referir/$code'
-    | '/gym/$memberId'
     | '/unirse/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -130,9 +130,9 @@ export interface FileRouteTypes {
     | '/login'
     | '/gym-admin/$programId'
     | '/gym-inscribirse/$slug'
+    | '/gym-member/$id'
     | '/gym-notifications/$programId'
     | '/gym-referir/$code'
-    | '/gym/$memberId'
     | '/unirse/$slug'
   id:
     | '__root__'
@@ -142,9 +142,9 @@ export interface FileRouteTypes {
     | '/login'
     | '/gym-admin/$programId'
     | '/gym-inscribirse/$slug'
+    | '/gym-member/$id'
     | '/gym-notifications/$programId'
     | '/gym-referir/$code'
-    | '/gym/$memberId'
     | '/unirse/$slug'
   fileRoutesById: FileRoutesById
 }
@@ -155,6 +155,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   GymAdminProgramIdRoute: typeof GymAdminProgramIdRoute
   GymInscribirseSlugRoute: typeof GymInscribirseSlugRoute
+  GymMemberIdRoute: typeof GymMemberIdRoute
   GymNotificationsProgramIdRoute: typeof GymNotificationsProgramIdRoute
   GymReferirCodeRoute: typeof GymReferirCodeRoute
   UnirseSlugRoute: typeof UnirseSlugRoute
@@ -197,13 +198,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UnirseSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/gym/$memberId': {
-      id: '/gym/$memberId'
-      path: '/$memberId'
-      fullPath: '/gym/$memberId'
-      preLoaderRoute: typeof GymMemberIdRouteImport
-      parentRoute: typeof GymRoute
-    }
     '/gym-referir/$code': {
       id: '/gym-referir/$code'
       path: '/gym-referir/$code'
@@ -216,6 +210,13 @@ declare module '@tanstack/react-router' {
       path: '/gym-notifications/$programId'
       fullPath: '/gym-notifications/$programId'
       preLoaderRoute: typeof GymNotificationsProgramIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/gym-member/$id': {
+      id: '/gym-member/$id'
+      path: '/gym-member/$id'
+      fullPath: '/gym-member/$id'
+      preLoaderRoute: typeof GymMemberIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/gym-inscribirse/$slug': {
@@ -242,6 +243,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   GymAdminProgramIdRoute: GymAdminProgramIdRoute,
   GymInscribirseSlugRoute: GymInscribirseSlugRoute,
+  GymMemberIdRoute: GymMemberIdRoute,
   GymNotificationsProgramIdRoute: GymNotificationsProgramIdRoute,
   GymReferirCodeRoute: GymReferirCodeRoute,
   UnirseSlugRoute: UnirseSlugRoute,

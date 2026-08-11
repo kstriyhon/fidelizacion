@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
@@ -9,7 +9,6 @@ import {
   Send,
   Clock,
   AlertCircle,
-  CheckCircle2,
   Eye,
   Settings,
   Play,
@@ -23,13 +22,16 @@ import {
   updateNotificationConfigFn,
   getNotificationHistoryFn,
   triggerExpirationNotificationsFn,
-  type NotificationConfig,
+  getExpirationMessage,
+  DEFAULT_EXPIRATION_TEMPLATE,
   type GymNotification,
+  type NotificationChannel,
 } from "@/lib/gym-notifications";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -37,35 +39,52 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const Route = createFileRoute("/gym-notifications/$programId")({
   component: NotificationsPage,
 });
 
+const CHANNEL_ICON: Record<NotificationChannel, React.ReactNode> = {
+  whatsapp: <MessageCircle className="w-4 h-4" />,
+  sms: <Smartphone className="w-4 h-4" />,
+  email: <Mail className="w-4 h-4" />,
+};
+
+const CHANNEL_LABEL: Record<NotificationChannel, string> = {
+  whatsapp: "WhatsApp",
+  sms: "SMS",
+  email: "Email",
+};
+
+const STATUS_STYLE: Record<string, string> = {
+  sent: "bg-green-500/15 text-green-700 dark:text-green-400",
+  pending: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400",
+  failed: "bg-red-500/15 text-red-700 dark:text-red-400",
+  bounced: "bg-red-500/15 text-red-700 dark:text-red-400",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  sent: "✅ Enviada",
+  pending: "⏳ Pendiente",
+  failed: "❌ Fallida",
+  bounced: "⚠️ Rechazada",
+};
+
 function NotificationsPage() {
   const { programId } = Route.useParams();
   const navigate = useNavigate();
   const session = useSession();
 
-  const [config, setConfig] = useState<NotificationConfig | null>(null);
   const [history, setHistory] = useState<GymNotification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [triggering, setTriggering] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewMessage, setPreviewMessage] = useState("");
 
-  // Form state
+  // Estado del formulario
   const [enabled, setEnabled] = useState(true);
-  const [channel, setChannel] = useState<"whatsapp" | "sms" | "email">("whatsapp");
+  const [channel, setChannel] = useState<NotificationChannel>("whatsapp");
   const [alertDays, setAlertDays] = useState(7);
   const [reminderMsg, setReminderMsg] = useState("");
   const [welcomeEnabled, setWelcomeEnabled] = useState(true);
@@ -76,44 +95,48 @@ function NotificationsPage() {
     if (session === null) navigate({ to: "/login" });
   }, [session, navigate]);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const cfg = await getNotificationConfigFn({ programId });
-      setConfig(cfg);
+      const cfg = await getNotificationConfigFn({ data: { programId } });
       setEnabled(cfg.enabled);
       setChannel(cfg.preferred_channel);
       setAlertDays(cfg.alert_days);
-      setReminderMsg(cfg.reminder_message || "");
+      setReminderMsg(cfg.reminder_message ?? "");
       setWelcomeEnabled(cfg.send_welcome_msg);
-      setWelcomeMsg(cfg.welcome_message || "");
+      setWelcomeMsg(cfg.welcome_message ?? "");
       setNotifTime(cfg.notification_time);
 
-      const hist = await getNotificationHistoryFn({ programId, limit: 20 });
+      const hist = await getNotificationHistoryFn({ data: { programId, limit: 20 } });
       setHistory(hist);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error al cargar configuración");
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
-  };
+  }, [programId]);
 
   useEffect(() => {
     if (session) loadData();
-  }, [session, programId]);
+  }, [session, loadData]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
       await updateNotificationConfigFn({
-        programId,
-        enabled,
-        preferredChannel: channel,
-        alertDays,
-        reminderMessage: reminderMsg || undefined,
-        sendWelcomeMsg: welcomeEnabled,
-        welcomeMessage: welcomeMsg || undefined,
-        notificationTime: notifTime,
+        data: {
+          programId,
+          enabled,
+          preferredChannel: channel,
+          alertDays,
+          reminderMessage: reminderMsg,
+          sendWelcomeMsg: welcomeEnabled,
+          welcomeMessage: welcomeMsg,
+          notificationTime: notifTime,
+        },
       });
       toast.success("✅ Configuración guardada");
       await loadData();
@@ -127,9 +150,9 @@ function NotificationsPage() {
   const handleTrigger = async () => {
     setTriggering(true);
     try {
-      const result = await triggerExpirationNotificationsFn({ programId });
+      const result = await triggerExpirationNotificationsFn({ data: { programId } });
       toast.success(
-        `✅ Notificaciones enviadas: ${result.sent} enviadas, ${result.skipped} saltadas, ${result.failed} fallidas`,
+        `Enviadas: ${result.sent} · Saltadas: ${result.skipped} · Fallidas: ${result.failed}`,
       );
       await loadData();
     } catch (err) {
@@ -139,18 +162,14 @@ function NotificationsPage() {
     }
   };
 
-  const channelIcon = {
-    whatsapp: <MessageCircle className="w-4 h-4" />,
-    sms: <Smartphone className="w-4 h-4" />,
-    email: <Mail className="w-4 h-4" />,
-  };
-
-  const statusColor = {
-    sent: "bg-green-500/15 text-green-700 dark:text-green-400",
-    pending: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400",
-    failed: "bg-red-500/15 text-red-700 dark:text-red-400",
-    bounced: "bg-red-500/15 text-red-700 dark:text-red-400",
-  };
+  // Vista previa con datos de ejemplo.
+  const preview = getExpirationMessage(
+    "María González",
+    alertDays,
+    new Date(Date.now() + alertDays * 24 * 60 * 60 * 1000),
+    "tu gimnasio",
+    reminderMsg || undefined,
+  );
 
   if (loading) {
     return (
@@ -160,16 +179,27 @@ function NotificationsPage() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 p-8">
+        <h1 className="text-xl font-bold text-red-600">Error</h1>
+        <p className="text-muted-foreground text-center max-w-md">{error}</p>
+        <Button onClick={() => navigate({ to: "/" })}>Volver al inicio</Button>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <div className="border-b bg-card sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bell className="w-6 h-6" />
             <div>
               <h1 className="text-2xl font-bold">Notificaciones</h1>
-              <p className="text-sm text-muted-foreground">Gestionar recordatorios de vencimiento</p>
+              <p className="text-sm text-muted-foreground">
+                Recordatorios de vencimiento de membresía
+              </p>
             </div>
           </div>
           <Button variant="ghost" size="sm" onClick={() => signOut()}>
@@ -179,7 +209,6 @@ function NotificationsPage() {
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="max-w-6xl mx-auto px-4 py-8">
         <Tabs defaultValue="settings" className="space-y-4">
           <TabsList>
@@ -189,14 +218,12 @@ function NotificationsPage() {
             </TabsTrigger>
             <TabsTrigger value="history">
               <Eye className="w-4 h-4 mr-2" />
-              Historial
+              Historial ({history.length})
             </TabsTrigger>
           </TabsList>
 
-          {/* Settings Tab */}
           <TabsContent value="settings" className="space-y-6">
             <div className="bg-card rounded-lg border p-6 space-y-6">
-              {/* Enable/Disable */}
               <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
                 <div className="flex items-center gap-3">
                   <Bell className="w-5 h-5" />
@@ -207,74 +234,53 @@ function NotificationsPage() {
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setEnabled(!enabled)}
-                  className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${
-                    enabled ? "bg-green-500" : "bg-gray-300"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
-                      enabled ? "translate-x-7" : "translate-x-1"
-                    }`}
-                  />
-                </button>
+                <Switch checked={enabled} onCheckedChange={setEnabled} />
               </div>
 
-              {/* Alert Configuration */}
               <div className="border-t pt-6 space-y-4">
                 <h3 className="font-semibold flex items-center gap-2">
                   <AlertCircle className="w-5 h-5" />
-                  Configuración de Alertas
+                  Alertas
                 </h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <Label htmlFor="alert-days">Alertar con X días antes</Label>
+                    <Label htmlFor="alert-days">Avisar con X días de antelación</Label>
                     <Input
                       id="alert-days"
                       type="number"
-                      min="1"
-                      max="30"
+                      min={1}
+                      max={30}
                       value={alertDays}
                       onChange={(e) => setAlertDays(Number(e.target.value))}
                       className="mt-2"
                     />
                     <p className="text-xs text-muted-foreground mt-2">
-                      Notificará membresías que vencen en {alertDays} días
+                      Avisará a quien venza en los próximos {alertDays} días.
                     </p>
                   </div>
 
                   <div>
                     <Label htmlFor="channel">Canal preferido</Label>
-                    <Select value={channel} onValueChange={(v: any) => setChannel(v)}>
+                    <Select
+                      value={channel}
+                      onValueChange={(v) => setChannel(v as NotificationChannel)}
+                    >
                       <SelectTrigger id="channel" className="mt-2">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="whatsapp">
-                          <div className="flex items-center gap-2">
-                            <MessageCircle className="w-4 h-4" />
-                            WhatsApp
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="sms">
-                          <div className="flex items-center gap-2">
-                            <Smartphone className="w-4 h-4" />
-                            SMS
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="email">
-                          <div className="flex items-center gap-2">
-                            <Mail className="w-4 h-4" />
-                            Email
-                          </div>
-                        </SelectItem>
+                        <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                        <SelectItem value="sms">SMS</SelectItem>
+                        <SelectItem value="email">Email</SelectItem>
                       </SelectContent>
                     </Select>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Hoy solo WhatsApp está implementado (enlace wa.me manual).
+                    </p>
                   </div>
 
-                  <div className="col-span-2">
+                  <div>
                     <Label htmlFor="notif-time" className="flex items-center gap-2">
                       <Clock className="w-4 h-4" />
                       Hora de envío (UTC)
@@ -290,99 +296,67 @@ function NotificationsPage() {
                 </div>
               </div>
 
-              {/* Reminder Message */}
-              <div className="border-t pt-6 space-y-4">
-                <h3 className="font-semibold">Mensaje de Recordatorio</h3>
-
-                <div>
-                  <Label htmlFor="reminder-msg">Plantilla personalizada (opcional)</Label>
-                  <p className="text-xs text-muted-foreground mb-2">
-                    Variables disponibles: {"{nombre}"}, {"{dias}"}, {"{fecha}"}, {"{negocio}"}
-                  </p>
-                  <Textarea
-                    id="reminder-msg"
-                    placeholder="Hola {nombre}, tu membresía en {negocio} vence en {dias} días ({fecha}). Renuévala ahora 💪"
-                    value={reminderMsg}
-                    onChange={(e) => setReminderMsg(e.target.value)}
-                    rows={3}
-                  />
+              <div className="border-t pt-6 space-y-3">
+                <h3 className="font-semibold">Mensaje de recordatorio</h3>
+                <p className="text-xs text-muted-foreground">
+                  Variables: {"{nombre}"} · {"{dias}"} · {"{fecha}"} · {"{negocio}"}. Déjalo vacío
+                  para usar el mensaje por defecto.
+                </p>
+                <Textarea
+                  rows={3}
+                  placeholder={DEFAULT_EXPIRATION_TEMPLATE}
+                  value={reminderMsg}
+                  onChange={(e) => setReminderMsg(e.target.value)}
+                />
+                <div className="rounded-lg border bg-muted/50 p-3">
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Vista previa</p>
+                  <p className="text-sm">{preview}</p>
                 </div>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setPreviewMessage(reminderMsg || "Mensaje por defecto");
-                    setShowPreview(true);
-                  }}
-                >
-                  👁️ Ver previsualizacion
-                </Button>
               </div>
 
-              {/* Welcome Message */}
-              <div className="border-t pt-6 space-y-4">
+              <div className="border-t pt-6 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="font-semibold">Mensaje de Bienvenida</h3>
+                    <h3 className="font-semibold">Mensaje de bienvenida</h3>
                     <p className="text-sm text-muted-foreground">
-                      Se envía cuando un miembro se inscribe
+                      Se envía cuando alguien se inscribe
                     </p>
                   </div>
-                  <button
-                    onClick={() => setWelcomeEnabled(!welcomeEnabled)}
-                    className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${
-                      welcomeEnabled ? "bg-green-500" : "bg-gray-300"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
-                        welcomeEnabled ? "translate-x-7" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
+                  <Switch checked={welcomeEnabled} onCheckedChange={setWelcomeEnabled} />
                 </div>
 
                 {welcomeEnabled && (
-                  <div>
-                    <Label htmlFor="welcome-msg">Plantilla personalizada</Label>
-                    <p className="text-xs text-muted-foreground mb-2">
-                      Variables: {"{nombre}"}, {"{negocio}"}
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Variables: {"{nombre}"} · {"{negocio}"}
                     </p>
                     <Textarea
-                      id="welcome-msg"
-                      placeholder="¡Bienvenido {nombre} a {negocio}! 🏋️ Tu membresía está activa..."
+                      rows={2}
+                      placeholder="¡Bienvenido {nombre} a {negocio}! 🏋️"
                       value={welcomeMsg}
                       onChange={(e) => setWelcomeMsg(e.target.value)}
-                      rows={2}
                     />
-                  </div>
+                  </>
                 )}
               </div>
 
-              {/* Save Button */}
-              <div className="border-t pt-6 flex gap-2">
+              <div className="border-t pt-6">
                 <Button onClick={handleSave} disabled={saving} size="lg">
-                  {saving ? "Guardando..." : "💾 Guardar Configuración"}
+                  {saving ? "Guardando..." : "💾 Guardar configuración"}
                 </Button>
               </div>
             </div>
 
-            {/* Manual Trigger */}
             <div className="bg-blue-500/5 border border-blue-500/30 rounded-lg p-6 space-y-4">
               <h3 className="font-semibold flex items-center gap-2">
                 <Send className="w-5 h-5" />
-                Disparar Notificaciones Manualmente
+                Disparar ahora
               </h3>
               <p className="text-sm text-muted-foreground">
-                Envía notificaciones de vencimiento a todos los miembros con membresía próxima a
-                vencer basado en la configuración anterior.
+                Registra un recordatorio para cada miembro cuya membresía venza dentro de{" "}
+                {alertDays} días. No repite aviso si ya se mandó uno en las últimas 24 h.
               </p>
-              <Button
-                onClick={handleTrigger}
-                disabled={triggering || !enabled}
-                variant="default"
-              >
+              <Button onClick={handleTrigger} disabled={triggering || !enabled}>
                 {triggering ? (
                   <>
                     <Loader className="w-4 h-4 mr-2 animate-spin" />
@@ -391,15 +365,14 @@ function NotificationsPage() {
                 ) : (
                   <>
                     <Play className="w-4 h-4 mr-2" />
-                    Enviar Notificaciones Ahora
+                    Enviar notificaciones
                   </>
                 )}
               </Button>
             </div>
           </TabsContent>
 
-          {/* History Tab */}
-          <TabsContent value="history" className="space-y-4">
+          <TabsContent value="history">
             <div className="bg-card rounded-lg border overflow-hidden">
               {history.length === 0 ? (
                 <div className="text-center p-8 text-muted-foreground">
@@ -423,14 +396,12 @@ function NotificationsPage() {
                       {history.map((notif) => (
                         <tr key={notif.id} className="hover:bg-muted/50">
                           <td className="px-4 py-3">
-                            <div>
-                              <p className="font-medium">
-                                {notif.loyalty_members?.full_name || "—"}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {notif.loyalty_members?.phone || "sin teléfono"}
-                              </p>
-                            </div>
+                            <p className="font-medium">
+                              {notif.loyalty_members?.full_name ?? "—"}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {notif.loyalty_members?.phone ?? "sin teléfono"}
+                            </p>
                           </td>
                           <td className="px-4 py-3 text-xs">
                             {notif.notification_type === "expiration_reminder"
@@ -441,25 +412,15 @@ function NotificationsPage() {
                           </td>
                           <td className="px-4 py-3">
                             <span className="flex items-center gap-1 text-xs">
-                              {channelIcon[notif.channel as "whatsapp" | "sms" | "email"]}
-                              {notif.channel === "whatsapp"
-                                ? "WhatsApp"
-                                : notif.channel === "sms"
-                                  ? "SMS"
-                                  : "Email"}
+                              {CHANNEL_ICON[notif.channel]}
+                              {CHANNEL_LABEL[notif.channel]}
                             </span>
                           </td>
                           <td className="px-4 py-3">
                             <span
-                              className={`text-xs px-2 py-1 rounded ${statusColor[notif.status as keyof typeof statusColor]}`}
+                              className={`text-xs px-2 py-1 rounded ${STATUS_STYLE[notif.status] ?? ""}`}
                             >
-                              {notif.status === "sent"
-                                ? "✅ Enviada"
-                                : notif.status === "pending"
-                                  ? "⏳ Pendiente"
-                                  : notif.status === "failed"
-                                    ? "❌ Fallida"
-                                    : "⚠️ Rechazada"}
+                              {STATUS_LABEL[notif.status] ?? notif.status}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-xs text-muted-foreground">
@@ -470,9 +431,7 @@ function NotificationsPage() {
                               minute: "2-digit",
                             })}
                           </td>
-                          <td className="px-4 py-3 text-xs max-w-xs truncate">
-                            {notif.message}
-                          </td>
+                          <td className="px-4 py-3 text-xs max-w-xs truncate">{notif.message}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -483,30 +442,6 @@ function NotificationsPage() {
           </TabsContent>
         </Tabs>
       </div>
-
-      {/* Preview Dialog */}
-      <Dialog open={showPreview} onOpenChange={setShowPreview}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Previsualizacion del mensaje</DialogTitle>
-            <DialogDescription>
-              Así se verá el mensaje enviado al miembro
-            </DialogDescription>
-          </DialogHeader>
-          <div className="bg-muted/50 rounded-lg p-4 space-y-4">
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Ejemplo de mensaje:</p>
-              <div className="bg-white dark:bg-slate-900 rounded border p-3 text-sm">
-                {previewMessage}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <MessageCircle className="w-4 h-4" />
-              <span>Se enviará por {channel === "whatsapp" ? "WhatsApp" : channel}</span>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
