@@ -17,7 +17,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 
-import { useSession, signOut } from "@/lib/auth";
+import { useSession, signOut, getAccessToken } from "@/lib/auth";
 import {
   getGymAdminDashboardFn,
   createMembershipFn,
@@ -67,7 +67,9 @@ function GymAdminPanel() {
     setLoading(true);
     setError(null);
     try {
-      const data = await getGymAdminDashboardFn({ data: { programId } });
+      const data = await getGymAdminDashboardFn({
+        data: { programId, token: await getAccessToken() },
+      });
       setProgram(data.program);
 
       const memberMap = new Map(data.memberships.map((m: any) => [m.member_id, m]));
@@ -109,7 +111,9 @@ function GymAdminPanel() {
   const handleGenerateReport = async () => {
     setStatsLoading(true);
     try {
-      const data = await getMonthlyAttendanceReportFn({ data: { programId } });
+      const data = await getMonthlyAttendanceReportFn({
+        data: { programId, token: await getAccessToken() },
+      });
       setReport(data);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error");

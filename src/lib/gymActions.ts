@@ -11,12 +11,26 @@ import { z } from "zod";
 
 import type { AttendanceSession } from "./gym-data";
 import { getSupabaseAdmin } from "./supabaseAdmin.server";
+import { requireProgramAccess, requireMemberAccess } from "./authz.server";
+
+// AUTORIZACIÓN (Fase 2). Estas funciones usan el cliente service_role, que se
+// salta la RLS, así que CADA UNA debe autorizar por su cuenta. Criterio:
+//
+//  - PÚBLICAS a propósito (sin token): la inscripción, la landing de referido y
+//    el dashboard del miembro con su check-in/out. El miembro no tiene cuenta;
+//    el control de acceso es que la URL lleva su UUID (el mismo del QR). Todas
+//    operan SOLO sobre el memberId de la URL, así que no dan acceso a terceros.
+//  - RESTO (panel, membresías, reportes, config, notificaciones): exigen `token`
+//    y que quien llama sea DUEÑO del negocio o ADMIN.
 
 /** Duraciones por defecto si el programa aún no tiene fila en gym_program_config. */
 const DEFAULT_DAYS = { monthly: 30, quarterly: 90, annual: 365 } as const;
 
 const memberIdSchema = z.object({ memberId: z.string().uuid() });
 const programIdSchema = z.object({ programId: z.string().uuid() });
+
+/** access_token de Supabase Auth: lo exigen las funciones administrativas. */
+const token = z.string().min(1, "Falta el token de sesión");
 
 /** Obtiene el dashboard completo del miembro en el gimnasio. */
 export const getGymMemberDashboardFn = createServerFn({ method: "POST" })
@@ -249,8 +263,9 @@ export const getReferralSummaryFn = createServerFn({ method: "POST" })
 
 /** Obtiene dashboard admin del gimnasio para un programa. */
 export const getGymAdminDashboardFn = createServerFn({ method: "POST" })
-  .validator(programIdSchema)
+  .validator(programIdSchema.extend({ token }))
   .handler(async ({ data }) => {
+    await requireProgramAccess(data.token, data.programId);
     const db = getSupabaseAdmin();
 
     const { data: program } = await db
@@ -318,11 +333,13 @@ export const getGymAdminDashboardFn = createServerFn({ method: "POST" })
 export const createMembershipFn = createServerFn({ method: "POST" })
   .validator(
     z.object({
+      token,
       memberId: z.string().uuid(),
       type: z.enum(["monthly", "quarterly", "annual"]),
     }),
   )
   .handler(async ({ data }) => {
+    await requireMemberAccess(data.token, data.memberId);
     const db = getSupabaseAdmin();
 
     const { data: member } = await db
@@ -368,12 +385,23 @@ export const createMembershipFn = createServerFn({ method: "POST" })
 export const updateMembershipPaymentStatusFn = createServerFn({ method: "POST" })
   .validator(
     z.object({
+      token,
       membershipId: z.string().uuid(),
       status: z.enum(["up_to_date", "overdue", "paused"]),
     }),
   )
   .handler(async ({ data }) => {
     const db = getSupabaseAdmin();
+
+    // La membresía no dice a qué programa pertenece: hay que pasar por el miembro.
+    const { data: membership } = await db
+      .from("gym_memberships")
+      .select("member_id")
+      .eq("id", data.membershipId)
+      .maybeSingle();
+
+    if (!membership) throw new Error("Membresía no encontrada");
+    await requireMemberAccess(data.token, membership.member_id as string);
 
     const { data: updated, error } = await db
       .from("gym_memberships")
@@ -390,12 +418,14 @@ export const updateMembershipPaymentStatusFn = createServerFn({ method: "POST" }
 export const getMemberAttendanceHistoryFn = createServerFn({ method: "POST" })
   .validator(
     z.object({
+      token,
       memberId: z.string().uuid(),
       startDate: z.string(),
       endDate: z.string(),
     }),
   )
   .handler(async ({ data }) => {
+    await requireMemberAccess(data.token, data.memberId);
     const db = getSupabaseAdmin();
 
     const { data: rows, error } = await db
@@ -414,6 +444,7 @@ export const getMemberAttendanceHistoryFn = createServerFn({ method: "POST" })
 export const updateGymProgramConfigFn = createServerFn({ method: "POST" })
   .validator(
     z.object({
+      token,
       programId: z.string().uuid(),
       monthlyDays: z.number().int().optional(),
       monthlyPrice: z.number().optional(),
@@ -427,6 +458,7 @@ export const updateGymProgramConfigFn = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
+    await requireProgramAccess(data.token, data.programId);
     const db = getSupabaseAdmin();
 
     const row: Record<string, unknown> = {
@@ -457,8 +489,9 @@ export const updateGymProgramConfigFn = createServerFn({ method: "POST" })
 
 /** Reporte de asistencia del mes actual. */
 export const getMonthlyAttendanceReportFn = createServerFn({ method: "POST" })
-  .validator(programIdSchema)
+  .validator(programIdSchema.extend({ token }))
   .handler(async ({ data }) => {
+    await requireProgramAccess(data.token, data.programId);
     const db = getSupabaseAdmin();
 
     const monthStart = new Date();

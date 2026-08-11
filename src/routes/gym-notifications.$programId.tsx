@@ -16,7 +16,7 @@ import {
   LogOut,
 } from "lucide-react";
 
-import { useSession, signOut } from "@/lib/auth";
+import { useSession, signOut, getAccessToken } from "@/lib/auth";
 import {
   getNotificationConfigFn,
   updateNotificationConfigFn,
@@ -99,7 +99,8 @@ function NotificationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const cfg = await getNotificationConfigFn({ data: { programId } });
+      const authToken = await getAccessToken();
+      const cfg = await getNotificationConfigFn({ data: { programId, token: authToken } });
       setEnabled(cfg.enabled);
       setChannel(cfg.preferred_channel);
       setAlertDays(cfg.alert_days);
@@ -108,7 +109,9 @@ function NotificationsPage() {
       setWelcomeMsg(cfg.welcome_message ?? "");
       setNotifTime(cfg.notification_time);
 
-      const hist = await getNotificationHistoryFn({ data: { programId, limit: 20 } });
+      const hist = await getNotificationHistoryFn({
+        data: { programId, limit: 20, token: authToken },
+      });
       setHistory(hist);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -129,6 +132,7 @@ function NotificationsPage() {
       await updateNotificationConfigFn({
         data: {
           programId,
+          token: await getAccessToken(),
           enabled,
           preferredChannel: channel,
           alertDays,
@@ -150,7 +154,9 @@ function NotificationsPage() {
   const handleTrigger = async () => {
     setTriggering(true);
     try {
-      const result = await triggerExpirationNotificationsFn({ data: { programId } });
+      const result = await triggerExpirationNotificationsFn({
+        data: { programId, token: await getAccessToken() },
+      });
       toast.success(
         `Enviadas: ${result.sent} · Saltadas: ${result.skipped} · Fallidas: ${result.failed}`,
       );

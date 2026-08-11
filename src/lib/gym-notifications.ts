@@ -10,8 +10,13 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getSupabaseAdmin } from "./supabaseAdmin.server";
+import { requireProgramAccess, requireMemberAccess } from "./authz.server";
 import type { Membership } from "./gym-data";
 import type { Member } from "./data";
+
+// Todas las server functions de este archivo son administrativas: exigen `token`
+// y que quien llama sea DUEÑO del negocio o ADMIN. Usan service_role (se salta
+// la RLS), así que la autorización tiene que ser explícita en cada una.
 
 const DAY = 24 * 60 * 60 * 1000; // milisegundos
 
@@ -226,25 +231,36 @@ async function loadBusinessName(db: SupabaseClient, programId: string): Promise<
 // Server functions
 // ---------------------------------------------------------------------------
 
-const programIdSchema = z.object({ programId: z.string().uuid() });
+/** access_token de Supabase Auth (obligatorio: son funciones administrativas). */
+const token = z.string().min(1, "Falta el token de sesión");
+
+const programIdSchema = z.object({ token, programId: z.string().uuid() });
 
 /** Membresías próximas a vencer de un programa. */
 export const getExpiringMembershipsForNotificationFn = createServerFn({ method: "POST" })
   .validator(
     z.object({
+      token,
       programId: z.string().uuid(),
       alertDays: z.number().int().min(1).max(30),
       limit: z.number().int().positive().optional(),
     }),
   )
-  .handler(async ({ data }) =>
-    loadExpiringMemberships(getSupabaseAdmin(), data.programId, data.alertDays, data.limit),
-  );
+  .handler(async ({ data }) => {
+    await requireProgramAccess(data.token, data.programId);
+    return loadExpiringMemberships(
+      getSupabaseAdmin(),
+      data.programId,
+      data.alertDays,
+      data.limit,
+    );
+  });
 
 /** Registra una notificación de vencimiento. */
 export const sendExpirationNotificationFn = createServerFn({ method: "POST" })
   .validator(
     z.object({
+      token,
       memberId: z.string().uuid(),
       membershipId: z.string().uuid(),
       phone: z.string().min(1),
@@ -252,46 +268,53 @@ export const sendExpirationNotificationFn = createServerFn({ method: "POST" })
       channel: z.enum(["whatsapp", "sms", "email"]).optional(),
     }),
   )
-  .handler(async ({ data }) =>
-    recordNotification(getSupabaseAdmin(), {
+  .handler(async ({ data }) => {
+    await requireMemberAccess(data.token, data.memberId);
+    return recordNotification(getSupabaseAdmin(), {
       memberId: data.memberId,
       membershipId: data.membershipId,
       type: "expiration_reminder",
       channel: data.channel ?? "whatsapp",
       phone: data.phone,
       message: data.message,
-    }),
-  );
+    });
+  });
 
 /** Registra una notificación de bienvenida. */
 export const sendWelcomeNotificationFn = createServerFn({ method: "POST" })
   .validator(
     z.object({
+      token,
       memberId: z.string().uuid(),
       phone: z.string().min(1),
       message: z.string().min(1),
       channel: z.enum(["whatsapp", "sms", "email"]).optional(),
     }),
   )
-  .handler(async ({ data }) =>
-    recordNotification(getSupabaseAdmin(), {
+  .handler(async ({ data }) => {
+    await requireMemberAccess(data.token, data.memberId);
+    return recordNotification(getSupabaseAdmin(), {
       memberId: data.memberId,
       type: "welcome",
       channel: data.channel ?? "whatsapp",
       phone: data.phone,
       message: data.message,
-    }),
-  );
+    });
+  });
 
 /** Config de notificaciones del programa (la crea con defaults si no existe). */
 export const getNotificationConfigFn = createServerFn({ method: "POST" })
   .validator(programIdSchema)
-  .handler(async ({ data }) => loadOrCreateConfig(getSupabaseAdmin(), data.programId));
+  .handler(async ({ data }) => {
+    await requireProgramAccess(data.token, data.programId);
+    return loadOrCreateConfig(getSupabaseAdmin(), data.programId);
+  });
 
 /** Guarda la config de notificaciones (upsert: puede no existir la fila). */
 export const updateNotificationConfigFn = createServerFn({ method: "POST" })
   .validator(
     z.object({
+      token,
       programId: z.string().uuid(),
       enabled: z.boolean().optional(),
       preferredChannel: z.enum(["whatsapp", "sms", "email"]).optional(),
@@ -303,6 +326,7 @@ export const updateNotificationConfigFn = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
+    await requireProgramAccess(data.token, data.programId);
     const db = getSupabaseAdmin();
 
     const row: Record<string, unknown> = {
@@ -331,6 +355,7 @@ export const updateNotificationConfigFn = createServerFn({ method: "POST" })
 export const triggerExpirationNotificationsFn = createServerFn({ method: "POST" })
   .validator(programIdSchema)
   .handler(async ({ data }) => {
+    await requireProgramAccess(data.token, data.programId);
     const db = getSupabaseAdmin();
     const config = await loadOrCreateConfig(db, data.programId);
 
@@ -400,13 +425,22 @@ export const triggerExpirationNotificationsFn = createServerFn({ method: "POST" 
 /** Historial de notificaciones (por miembro o por programa). */
 export const getNotificationHistoryFn = createServerFn({ method: "POST" })
   .validator(
-    z.object({
-      memberId: z.string().uuid().optional(),
-      programId: z.string().uuid().optional(),
-      limit: z.number().int().positive().max(200).optional(),
-    }),
+    z
+      .object({
+        token,
+        memberId: z.string().uuid().optional(),
+        programId: z.string().uuid().optional(),
+        limit: z.number().int().positive().max(200).optional(),
+      })
+      // Sin ámbito devolvería el historial de TODA la plataforma.
+      .refine((v) => v.memberId || v.programId, {
+        message: "Indica memberId o programId",
+      }),
   )
   .handler(async ({ data }) => {
+    if (data.memberId) await requireMemberAccess(data.token, data.memberId);
+    if (data.programId) await requireProgramAccess(data.token, data.programId);
+
     const db = getSupabaseAdmin();
 
     let query = db
