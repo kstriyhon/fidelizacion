@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Stamp, ArrowLeft } from "lucide-react";
+import { Stamp, ArrowLeft, MailCheck } from "lucide-react";
 
-import { signIn, signUp } from "@/lib/auth";
+import { signIn, signUp, requestPasswordReset } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,15 +12,54 @@ export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
+type Mode = "in" | "up" | "reset";
+
+const TITLES: Record<Mode, { title: string; subtitle: string }> = {
+  in: {
+    title: "Entra a tu panel",
+    subtitle: "Gestiona tu programa de sellos y tus clientes.",
+  },
+  up: {
+    title: "Crea tu cuenta de comercio",
+    subtitle: "Regístrate para crear tu tarjeta de fidelización.",
+  },
+  reset: {
+    title: "Recupera tu contraseña",
+    subtitle: "Te enviamos un enlace para crear una nueva.",
+  },
+};
+
 function LoginPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"in" | "up">("in");
+  const [mode, setMode] = useState<Mode>("in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  function switchTo(next: Mode) {
+    setMode(next);
+    setSent(false);
+    setPassword("");
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+
+    if (mode === "reset") {
+      if (!email) return toast.error("Escribe tu email.");
+      setBusy(true);
+      try {
+        await requestPasswordReset(email);
+        setSent(true);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "No se pudo enviar el correo");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     if (!email || password.length < 6) {
       return toast.error("Ingresa un email y una contraseña de al menos 6 caracteres.");
     }
@@ -33,7 +72,7 @@ function LoginPage() {
         const { needsConfirmation } = await signUp(email, password);
         if (needsConfirmation) {
           toast.success("Cuenta creada. Revisa tu correo para confirmarla y luego inicia sesión.");
-          setMode("in");
+          switchTo("in");
         } else {
           navigate({ to: "/comercio" });
         }
@@ -45,6 +84,8 @@ function LoginPage() {
     }
   }
 
+  const { title, subtitle } = TITLES[mode];
+
   return (
     <div className="grid min-h-screen place-items-center bg-muted/30 px-6">
       <div className="w-full max-w-sm">
@@ -55,50 +96,94 @@ function LoginPage() {
           <div className="flex items-center gap-2 font-bold">
             <Stamp className="h-6 w-6 text-primary" /> Fideliza
           </div>
-          <h1 className="mt-4 text-lg font-bold">
-            {mode === "in" ? "Entra a tu panel" : "Crea tu cuenta de comercio"}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {mode === "in"
-              ? "Gestiona tu programa de sellos y tus clientes."
-              : "Regístrate para crear tu tarjeta de fidelización."}
-          </p>
+          <h1 className="mt-4 text-lg font-bold">{title}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
 
-          <form onSubmit={submit} className="mt-5 grid gap-3">
-            <div className="grid gap-1.5">
-              <Label>Email</Label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="tunegocio@correo.com"
-                autoComplete="email"
-              />
+          {/* Tras pedir el enlace no repetimos el formulario: evita reenvíos en
+              cadena y deja claro que el siguiente paso está en el correo. */}
+          {mode === "reset" && sent ? (
+            <div className="mt-5 grid gap-4">
+              <div className="flex gap-3 rounded-lg border bg-muted/50 p-4">
+                <MailCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                <div className="text-sm">
+                  <p className="font-medium">Revisa tu correo</p>
+                  <p className="mt-1 text-muted-foreground">
+                    Si <span className="font-medium text-foreground">{email}</span> tiene cuenta, le
+                    llega un enlace para crear una contraseña nueva.
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                ¿No llega? Mira en spam. Y si tu correo previsualiza los enlaces, copia la dirección
+                del botón y pégala en el navegador en lugar de hacer clic: algunos clientes de correo
+                gastan el enlace al abrirlo por su cuenta.
+              </p>
+              <Button variant="outline" onClick={() => switchTo("in")}>
+                Volver al inicio de sesión
+              </Button>
             </div>
-            <div className="grid gap-1.5">
-              <Label>Contraseña</Label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                autoComplete={mode === "in" ? "current-password" : "new-password"}
-              />
-            </div>
-            <Button type="submit" size="lg" disabled={busy} className="mt-1">
-              {busy ? "Procesando…" : mode === "in" ? "Iniciar sesión" : "Crear cuenta"}
-            </Button>
-          </form>
+          ) : (
+            <>
+              <form onSubmit={submit} className="mt-5 grid gap-3">
+                <div className="grid gap-1.5">
+                  <Label>Email</Label>
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="tunegocio@correo.com"
+                    autoComplete="email"
+                  />
+                </div>
 
-          <button
-            type="button"
-            onClick={() => setMode(mode === "in" ? "up" : "in")}
-            className="mt-4 text-sm text-primary hover:underline"
-          >
-            {mode === "in"
-              ? "¿No tienes cuenta? Regístrate"
-              : "¿Ya tienes cuenta? Inicia sesión"}
-          </button>
+                {mode !== "reset" && (
+                  <div className="grid gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label>Contraseña</Label>
+                      {mode === "in" && (
+                        <button
+                          type="button"
+                          onClick={() => switchTo("reset")}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          ¿Olvidaste tu contraseña?
+                        </button>
+                      )}
+                    </div>
+                    <Input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      autoComplete={mode === "in" ? "current-password" : "new-password"}
+                    />
+                  </div>
+                )}
+
+                <Button type="submit" size="lg" disabled={busy} className="mt-1">
+                  {busy
+                    ? "Procesando…"
+                    : mode === "in"
+                      ? "Iniciar sesión"
+                      : mode === "up"
+                        ? "Crear cuenta"
+                        : "Enviarme el enlace"}
+                </Button>
+              </form>
+
+              <button
+                type="button"
+                onClick={() => switchTo(mode === "in" ? "up" : "in")}
+                className="mt-4 text-sm text-primary hover:underline"
+              >
+                {mode === "in"
+                  ? "¿No tienes cuenta? Regístrate"
+                  : mode === "up"
+                    ? "¿Ya tienes cuenta? Inicia sesión"
+                    : "Volver al inicio de sesión"}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

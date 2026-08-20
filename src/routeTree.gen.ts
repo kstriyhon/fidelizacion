@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as NuevaClaveRouteImport } from './routes/nueva-clave'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ComercioRouteImport } from './routes/comercio'
 import { Route as AdminRouteImport } from './routes/admin'
@@ -20,6 +21,11 @@ import { Route as GymMemberIdRouteImport } from './routes/gym-member.$id'
 import { Route as GymInscribirseSlugRouteImport } from './routes/gym-inscribirse.$slug'
 import { Route as GymAdminProgramIdRouteImport } from './routes/gym-admin.$programId'
 
+const NuevaClaveRoute = NuevaClaveRouteImport.update({
+  id: '/nueva-clave',
+  path: '/nueva-clave',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRoute
   '/comercio': typeof ComercioRoute
   '/login': typeof LoginRoute
+  '/nueva-clave': typeof NuevaClaveRoute
   '/gym-admin/$programId': typeof GymAdminProgramIdRoute
   '/gym-inscribirse/$slug': typeof GymInscribirseSlugRoute
   '/gym-member/$id': typeof GymMemberIdRoute
@@ -89,6 +96,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminRoute
   '/comercio': typeof ComercioRoute
   '/login': typeof LoginRoute
+  '/nueva-clave': typeof NuevaClaveRoute
   '/gym-admin/$programId': typeof GymAdminProgramIdRoute
   '/gym-inscribirse/$slug': typeof GymInscribirseSlugRoute
   '/gym-member/$id': typeof GymMemberIdRoute
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRoute
   '/comercio': typeof ComercioRoute
   '/login': typeof LoginRoute
+  '/nueva-clave': typeof NuevaClaveRoute
   '/gym-admin/$programId': typeof GymAdminProgramIdRoute
   '/gym-inscribirse/$slug': typeof GymInscribirseSlugRoute
   '/gym-member/$id': typeof GymMemberIdRoute
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/comercio'
     | '/login'
+    | '/nueva-clave'
     | '/gym-admin/$programId'
     | '/gym-inscribirse/$slug'
     | '/gym-member/$id'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/comercio'
     | '/login'
+    | '/nueva-clave'
     | '/gym-admin/$programId'
     | '/gym-inscribirse/$slug'
     | '/gym-member/$id'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/comercio'
     | '/login'
+    | '/nueva-clave'
     | '/gym-admin/$programId'
     | '/gym-inscribirse/$slug'
     | '/gym-member/$id'
@@ -153,6 +165,7 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRoute
   ComercioRoute: typeof ComercioRoute
   LoginRoute: typeof LoginRoute
+  NuevaClaveRoute: typeof NuevaClaveRoute
   GymAdminProgramIdRoute: typeof GymAdminProgramIdRoute
   GymInscribirseSlugRoute: typeof GymInscribirseSlugRoute
   GymMemberIdRoute: typeof GymMemberIdRoute
@@ -163,6 +176,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/nueva-clave': {
+      id: '/nueva-clave'
+      path: '/nueva-clave'
+      fullPath: '/nueva-clave'
+      preLoaderRoute: typeof NuevaClaveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -241,6 +261,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRoute,
   ComercioRoute: ComercioRoute,
   LoginRoute: LoginRoute,
+  NuevaClaveRoute: NuevaClaveRoute,
   GymAdminProgramIdRoute: GymAdminProgramIdRoute,
   GymInscribirseSlugRoute: GymInscribirseSlugRoute,
   GymMemberIdRoute: GymMemberIdRoute,
