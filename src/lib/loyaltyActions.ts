@@ -46,7 +46,25 @@ async function syncApplePass(
     const db = getSupabaseAdmin();
     const appleCfg = getAppleWalletConfig();
 
-    const { pkpassBuffer, mock } = await regenerateApplePassBuffer(member, program, business, serialNumber, opts);
+    // El authenticationToken del pase regenerado debe ser EXACTAMENTE el
+    // mismo que ya tiene el pase instalado en el dispositivo — si cambiara,
+    // Wallet ya no podría autenticarse contra nuestro web service.
+    const { data: existingPass } = await db
+      .from("loyalty_apple_passes")
+      .select("auth_token")
+      .eq("pass_type_id", appleCfg.passTypeId)
+      .eq("serial_number", serialNumber)
+      .single();
+    if (!existingPass?.auth_token) return;
+
+    const { pkpassBuffer, mock } = await regenerateApplePassBuffer(
+      member,
+      program,
+      business,
+      serialNumber,
+      existingPass.auth_token,
+      opts,
+    );
     if (mock || !pkpassBuffer) return;
 
     await db

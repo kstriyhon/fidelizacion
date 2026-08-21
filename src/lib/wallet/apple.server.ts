@@ -106,6 +106,14 @@ interface PassTemplate {
   foregroundColor: string;
   textColor: string;
   labelColor: string;
+  // Sin estos dos, Wallet NUNCA llama a nuestro PassKit web service (no
+  // registra el dispositivo, no pide actualizaciones) — el push queda muerto
+  // aunque el resto del pase esté perfecto. authenticationToken debe
+  // coincidir con el auth_token guardado en loyalty_apple_passes: nuestros
+  // handlers en passkit.server.ts lo validan contra el header
+  // "Authorization: ApplePass <token>" que Wallet manda automáticamente.
+  webServiceURL: string;
+  authenticationToken: string;
 }
 
 interface PassInstance extends PassTemplate {
@@ -118,7 +126,12 @@ interface PassInstance extends PassTemplate {
  * Construye la estructura JSON base del pase (plantilla).
  * Similar a buildClass en Google Wallet.
  */
-export function buildPassTemplate(cfg: AppleWalletConfig, program: ProgramLike, business: BusinessLike): PassTemplate {
+export function buildPassTemplate(
+  cfg: AppleWalletConfig,
+  program: ProgramLike,
+  business: BusinessLike,
+  authToken: string,
+): PassTemplate {
   // Convertir color hex a formato Apple (sin #)
   const brandColor = business.brand_color.replace("#", "");
 
@@ -151,6 +164,8 @@ export function buildPassTemplate(cfg: AppleWalletConfig, program: ProgramLike, 
     foregroundColor: "rgb(255, 255, 255)",
     labelColor: "rgb(255, 255, 255)",
     textColor: "rgb(255, 255, 255)",
+    webServiceURL: `${cfg.origin}/api/passkit`,
+    authenticationToken: authToken,
   };
 }
 
@@ -402,7 +417,7 @@ export async function createMemberApplePass(
   // Modo live: generar pase real
   try {
     // 1. Construir template + instance
-    const template = buildPassTemplate(cfg, program, business);
+    const template = buildPassTemplate(cfg, program, business, authToken);
     const passInstance = buildPassInstance(template, member, program, serialNumber);
 
     // 2. Decodificar certificados desde base64
@@ -450,6 +465,7 @@ export async function regenerateApplePassBuffer(
   program: ProgramLike,
   business: BusinessLike,
   serialNumber: string,
+  authToken: string,
   opts?: { stampChangeMessage?: string; auxiliaryMessage?: string },
   logoBase64: string | null = null,
 ): Promise<{ pkpassBuffer: Buffer | null; mock: boolean }> {
@@ -460,7 +476,7 @@ export async function regenerateApplePassBuffer(
   }
 
   try {
-    const template = buildPassTemplate(cfg, program, business);
+    const template = buildPassTemplate(cfg, program, business, authToken);
     const passInstance = buildPassInstance(template, member, program, serialNumber, opts);
 
     const certP12Buffer = decodeBase64Certificate(cfg.certificateP12Base64);

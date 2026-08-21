@@ -66,7 +66,7 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
       status: 200,
       headers: {
         "content-type": "application/vnd.apple.pkpass",
-        "content-disposition": `attachment; filename="pass.pkpass"`,
+        "content-disposition": `inline; filename="pass.pkpass"`,
       },
     });
   }
@@ -134,7 +134,7 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
         status: 200,
         headers: {
           "content-type": "application/vnd.apple.pkpass",
-          "content-disposition": `attachment; filename="pass.pkpass"`,
+          "content-disposition": `inline; filename="pass.pkpass"`,
         },
       });
     }

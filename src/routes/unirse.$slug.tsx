@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Wallet, CheckCircle2, Apple } from "lucide-react";
+import { Wallet, CheckCircle2 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 import type { Business, Member, Program } from "@/lib/data";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoyaltyCard } from "@/components/LoyaltyCard";
+import { AppleWalletBadge, GoogleWalletBadge } from "@/components/WalletBadges";
 
 export const Route = createFileRoute("/unirse/$slug")({
   loader: async ({ params }) => {
@@ -93,7 +94,13 @@ function JoinPage() {
               </div>
               <div className="grid gap-1.5">
                 <Label>WhatsApp (opcional)</Label>
-                <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+57 300 000 0000" />
+                <Input
+                  type="tel"
+                  inputMode="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+57 300 000 0000"
+                />
               </div>
               <Button type="submit" size="lg" disabled={saving} className="mt-1">
                 {saving ? "Creando tu tarjeta…" : "Obtener mi tarjeta"}
@@ -109,20 +116,10 @@ function JoinPage() {
             </p>
 
             <div className="mt-4 flex flex-col gap-3">
-              {result.saveUrl ? (
-                <a href={result.saveUrl} target="_blank" rel="noreferrer" className="block w-full">
-                  <Button size="lg" variant="default" className="w-full gap-2">
-                    <Wallet className="h-5 w-5" /> Añadir a Google Wallet
-                  </Button>
-                </a>
-              ) : null}
+              {result.saveUrl ? <GoogleWalletBadge href={result.saveUrl} /> : null}
 
               {result.appleDownloadUrl && !result.appleMock ? (
-                <a href={result.appleDownloadUrl} className="block w-full">
-                  <Button size="lg" variant="outline" className="w-full gap-2">
-                    <Apple className="h-5 w-5" /> Añadir a Apple Wallet
-                  </Button>
-                </a>
+                <AppleWalletBadge href={result.appleDownloadUrl} />
               ) : null}
 
               {(!result.saveUrl || result.appleMock) && (
