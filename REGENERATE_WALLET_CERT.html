@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Regenerar Wallet Signing Certificate - Fideliza</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            line-height: 1.6;
+            color: #1f2937;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 36px;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .step-container {
+            margin-bottom: 40px;
+            page-break-inside: avoid;
+        }
+
+        .step-number {
+            display: inline-block;
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 50px;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+
+        .step-title {
+            font-size: 22px;
+            color: #1f2937;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .step-description {
+            font-size: 15px;
+            color: #4b5563;
+            margin-bottom: 20px;
+            line-height: 1.7;
+        }
+
+        .code-block {
+            background: #1f2937;
+            color: #10b981;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            overflow-x: auto;
+            margin: 20px 0;
+            border-left: 4px solid #10b981;
+        }
+
+        .files-generated {
+            background: #eff6ff;
+            border-left: 4px solid #3b82f6;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .files-generated strong {
+            color: #1e40af;
+        }
+
+        .files-generated code {
+            background: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .instructions {
+            background: #f9fafb;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .instructions ol {
+            margin-left: 30px;
+        }
+
+        .instructions li {
+            margin-bottom: 12px;
+            line-height: 1.7;
+        }
+
+        .instructions strong {
+            color: #1f2937;
+        }
+
+        .warning {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #92400e;
+        }
+
+        .success {
+            background: #dcfce7;
+            border-left: 4px solid #22c55e;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #166534;
+        }
+
+        .divider {
+            border-top: 2px solid #e5e7eb;
+            margin: 50px 0;
+        }
+
+        .checklist {
+            background: #f3f4f6;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .checklist h3 {
+            margin-bottom: 15px;
+            color: #1f2937;
+        }
+
+        .checklist-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+        }
+
+        .checklist-item input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            margin-right: 12px;
+            cursor: pointer;
+        }
+
+        .checklist-item label {
+            cursor: pointer;
+            flex: 1;
+            font-size: 14px;
+        }
+
+        .info-box {
+            background: #e0f2fe;
+            border-left: 4px solid #0284c7;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #0c4a6e;
+        }
+
+        .timeline {
+            position: relative;
+            padding: 20px 0;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 24px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #e5e7eb;
+        }
+
+        .timeline-item {
+            position: relative;
+            margin-bottom: 30px;
+            padding-left: 70px;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: 12px;
+            top: 5px;
+            width: 26px;
+            height: 26px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            border: 3px solid white;
+        }
+
+        .timeline-item h4 {
+            font-size: 16px;
+            color: #1f2937;
+            margin-bottom: 8px;
+        }
+
+        .timeline-item p {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .footer {
+            background: #f9fafb;
+            padding: 30px 40px;
+            text-align: center;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .footer p {
+            color: #6b7280;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            border: none;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: #e5e7eb;
+            color: #1f2937;
+        }
+
+        .btn-secondary:hover {
+            background: #d1d5db;
+        }
+
+        @media print {
+            body {
+                background: white;
+            }
+            .container {
+                box-shadow: none;
+            }
+            .header {
+                page-break-after: always;
+            }
+            .step-container {
+                page-break-inside: avoid;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                padding: 20px;
+            }
+            .header h1 {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🔐 Regenerar Wallet Signing Certificate</h1>
+            <p>Guía paso a paso para crear el certificado de firma de pases</p>
+        </div>
+
+        <!-- Contenido -->
+        <div class="content">
+            <!-- Paso 1 -->
+            <div class="step-container">
+                <div class="step-number">1</div>
+                <div class="step-title">Generar Certificate Signing Request (CSR)</div>
+                <p class="step-description">
+                    En la Mac de quien está haciendo el certificado, abrir <strong>Terminal</strong> y ejecutar el siguiente comando:
+                </p>
+
+                <div class="code-block">openssl req -new -newkey rsa:2048 -nodes -keyout pass-signing.key -out pass-signing.csr -subj "/CN=Pass Signing Certificate"</div>
+
+                <div class="files-generated">
+                    <strong>✅ Esto genera dos archivos:</strong><br>
+                    • <code>pass-signing.key</code> ← <strong>Clave privada (GUARDAR EN LUGAR SEGURO)</strong><br>
+                    • <code>pass-signing.csr</code> ← Solicitud de certificado (para subir a Apple)
+                </div>
+
+                <div class="warning">
+                    <strong>⚠️ IMPORTANTE:</strong> El archivo <code>pass-signing.key</code> es la clave privada.
+                    Guardar en un lugar muy seguro. No compartir, no perder. Si se pierde, hay que regenerar todo.
+                </div>
+            </div>
+
+            <!-- Paso 2 -->
+            <div class="step-container">
+                <div class="step-number">2</div>
+                <div class="step-title">Crear Wallet Signing Certificate en Apple Developer Console</div>
+                <p class="step-description">
+                    Ahora vamos a Apple Developer Console a crear el certificado.
+                </p>
+
+                <div class="instructions">
+                    <ol>
+                        <li>Ve a: <strong>https://developer.apple.com/account/resources/certificates/list</strong></li>
+                        <li>Haz click en el botón <strong>+</strong> (arriba a la derecha)</li>
+                        <li>Selecciona <strong>Pass Type ID Certificate</strong></li>
+                        <li>Haz click en <strong>Continue</strong></li>
+                        <li>Selecciona el Pass Type ID: <code>pass.{TEAM_ID}.fideliza</code></li>
+                        <li>Haz click en <strong>Continue</strong></li>
+                        <li><strong>Sube el archivo <code>pass-signing.csr</code></strong> que generaste en Paso 1</li>
+                        <li>Haz click en <strong>Continue</strong></li>
+                        <li>Haz click en <strong>Download</strong></li>
+                    </ol>
+                </div>
+
+                <div class="success">
+                    <strong>✅ Se descargará:</strong> Un archivo llamado <code>pass.cer</code><br>
+                    Guardarlo en la misma carpeta donde está <code>pass-signing.key</code>
+                </div>
+            </div>
+
+            <!-- Paso 3 -->
+            <div class="step-container">
+                <div class="step-number">3</div>
+                <div class="step-title">Convertir a .p12 (formato que necesitamos)</div>
+                <p class="step-description">
+                    El archivo <code>pass.cer</code> solo tiene el certificado público.
+                    Necesitamos combinarlo con la clave privada para generar un <code>.p12</code>.
+                </p>
+
+                <div class="info-box">
+                    <strong>En Terminal:</strong> Navega a la carpeta donde están los archivos y ejecuta:
+                </div>
+
+                <div class="code-block">openssl pkcs12 -export -in pass.cer -inkey pass-signing.key -out pass-signing.p12 -name "Wallet Signing"</div>
+
+                <p class="step-description" style="margin-top: 20px;">
+                    <strong>Terminal te pedirá una contraseña:</strong>
+                </p>
+
+                <div class="instructions">
+                    <ol>
+                        <li>Ingresa una contraseña <strong>segura</strong> (ej: <code>SecurePassword123!</code>)</li>
+                        <li>Repite la contraseña para confirmar</li>
+                        <li><strong>ANOTA ESTA CONTRASEÑA</strong> (la necesitaremos después)</li>
+                    </ol>
+                </div>
+
+                <div class="success">
+                    <strong>✅ Se genera:</strong> Un archivo <code>pass-signing.p12</code><br>
+                    <strong>Este es el archivo que necesitamos para el proyecto.</strong>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <!-- Paso 4 -->
+            <div class="step-container">
+                <div class="step-number">4</div>
+                <div class="step-title">Enviar los archivos y datos</div>
+                <p class="step-description">
+                    Una vez completados los pasos anteriores, necesitamos:
+                </p>
+
+                <div class="checklist">
+                    <h3>📋 Checklist de archivos para enviar:</h3>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="check1">
+                        <label for="check1"><code>pass-signing.p12</code> ← Archivo principal</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="check2">
+                        <label for="check2"><code>AppleWWDRCAG4 (1).cer</code> ← Ya existe en la carpeta</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="check3">
+                        <label for="check3"><code>AuthKey_44BN3F598N.p8</code> ← Ya existe en la carpeta</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="check4">
+                        <label for="check4">Contraseña del .p12 (la que generaste en Paso 3)</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="check5">
+                        <label for="check5">Team ID (10 caracteres, ej: <code>XXXXXXXXXX</code>)</label>
+                    </div>
+                    <div class="checklist-item">
+                        <input type="checkbox" id="check6">
+                        <label for="check6">Pass Type ID (ej: <code>pass.XXXXXXXXXX.fideliza</code>)</label>
+                    </div>
+                </div>
+
+                <div class="warning">
+                    <strong>⚠️ Seguridad:</strong> La contraseña del .p12 y los archivos privados
+                    deben ser compartidos <strong>de forma segura</strong>, nunca en chats o emails públicos.
+                </div>
+            </div>
+
+            <!-- Timeline de resumen -->
+            <div class="divider"></div>
+
+            <h2 style="font-size: 24px; margin-bottom: 30px; color: #1f2937;">
+                📅 Resumen del Proceso
+            </h2>
+
+            <div class="timeline">
+                <div class="timeline-item">
+                    <h4>Terminal: Generar CSR + Clave Privada</h4>
+                    <p>Ejecutar comando openssl (Paso 1)</p>
+                </div>
+                <div class="timeline-item">
+                    <h4>Apple Developer Console</h4>
+                    <p>Subir CSR y descargar certificado (Paso 2)</p>
+                </div>
+                <div class="timeline-item">
+                    <h4>Terminal: Convertir a .p12</h4>
+                    <p>Combinar certificado + clave privada (Paso 3)</p>
+                </div>
+                <div class="timeline-item">
+                    <h4>Enviar a Fideliza Team</h4>
+                    <p>Compartir .p12 + datos (Paso 4)</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>
+                <strong>¿Preguntas?</strong> Revisa que todos los comandos se ejecuten sin errores.
+            </p>
+            <p style="font-size: 12px; color: #9ca3af; margin-top: 15px;">
+                Guía generada para el Proyecto Fideliza
+            </p>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="window.print()">
+                    🖨️ Imprimir / Guardar como PDF
+                </button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

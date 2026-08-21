@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guía de Certificados Apple Wallet & APNs</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            line-height: 1.6;
+            color: #1f2937;
+            background: #ffffff;
+            padding: 40px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 60px;
+            page-break-after: always;
+        }
+
+        .header h1 {
+            font-size: 48px;
+            color: #1f2937;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header h2 {
+            font-size: 36px;
+            color: #6b7280;
+            margin-bottom: 20px;
+            font-weight: 400;
+        }
+
+        .header p {
+            font-size: 14px;
+            color: #9ca3af;
+            margin-top: 30px;
+        }
+
+        .toc {
+            page-break-after: always;
+            margin-bottom: 60px;
+        }
+
+        .toc h2 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: #1f2937;
+        }
+
+        .toc ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .toc li {
+            margin: 8px 0;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        .toc li:before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: #3b82f6;
+        }
+
+        h2 {
+            font-size: 28px;
+            color: #374151;
+            margin-top: 50px;
+            margin-bottom: 20px;
+            border-bottom: 3px solid #3b82f6;
+            padding-bottom: 10px;
+            page-break-after: avoid;
+        }
+
+        h3 {
+            font-size: 18px;
+            color: #4b5563;
+            margin-top: 25px;
+            margin-bottom: 12px;
+            font-weight: 600;
+            page-break-after: avoid;
+        }
+
+        p {
+            margin-bottom: 12px;
+            text-align: justify;
+        }
+
+        ul {
+            margin-left: 30px;
+            margin-bottom: 15px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            color: #1e40af;
+        }
+
+        .code-block {
+            background: #f3f4f6;
+            border-left: 4px solid #3b82f6;
+            padding: 15px;
+            margin: 20px 0;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            color: #1e3a8a;
+            line-height: 1.5;
+            page-break-inside: avoid;
+        }
+
+        .warning {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            margin: 20px 0;
+            font-size: 14px;
+            color: #92400e;
+            page-break-inside: avoid;
+        }
+
+        .section-break {
+            page-break-after: always;
+            margin-top: 40px;
+        }
+
+        .steps {
+            margin-left: 20px;
+        }
+
+        .step {
+            margin-bottom: 20px;
+            page-break-inside: avoid;
+        }
+
+        .step strong {
+            color: #1f2937;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+
+        th, td {
+            border: 1px solid #d1d5db;
+            padding: 12px;
+            text-align: left;
+        }
+
+        th {
+            background: #f3f4f6;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .success {
+            color: #059669;
+            font-weight: 600;
+        }
+
+        .error {
+            color: #dc2626;
+            font-weight: 600;
+        }
+
+        @media print {
+            body {
+                padding: 20px;
+            }
+            h2 {
+                page-break-before: always;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Portada -->
+    <div class="header">
+        <h1>Guía de Certificados</h1>
+        <h2>Apple Wallet & APNs</h2>
+        <p>Para Proyecto Fideliza</p>
+        <p style="margin-top: 40px; font-size: 12px;">Generado: 2024</p>
+    </div>
+
+    <!-- Tabla de contenidos -->
+    <div class="toc">
+        <h2>Contenido</h2>
+        <ul>
+            <li>1. Requisitos Previos</li>
+            <li>2. Obtener Wallet Signing Certificate (.p12)</li>
+            <li>3. Obtener WWDR Certificate</li>
+            <li>4. Obtener APNs Private Key (.p8)</li>
+            <li>5. Exportar desde Keychain (si ya existe)</li>
+            <li>6. Notas de Seguridad</li>
+            <li>7. Estructura de Archivos Local</li>
+            <li>8. Validación de Certificados</li>
+        </ul>
+    </div>
+
+    <div class="section-break"></div>
+
+    <!-- Sección 1 -->
+    <h2>1. Requisitos Previos</h2>
+    <p>Antes de comenzar, necesitas:</p>
+    <ul>
+        <li>Cuenta Apple Developer con membresía activa ($99/año)</li>
+        <li>Acceso a <code>https://developer.apple.com/account</code></li>
+        <li>Team ID y Pass Type ID (obtenido en Wallet Console)</li>
+        <li>Mac con Keychain Access (o software de gestión de certs)</li>
+        <li>OpenSSL instalado en terminal (macOS lo trae)</li>
+    </ul>
+    <div class="warning">
+        <strong>Nota importante:</strong> Ten en cuenta tu <strong>Team ID</strong> (10 caracteres alfanuméricos). Lo necesitarás en cada paso.
+    </div>
+
+    <!-- Sección 2 -->
+    <h2>2. Obtener Wallet Signing Certificate (.p12)</h2>
+    <p>Este es el certificado que usaremos para firmar los pases .pkpass.</p>
+
+    <h3>Paso 1: Generar una Certificate Signing Request (CSR)</h3>
+    <p>En tu Mac, abre Terminal y ejecuta:</p>
+    <div class="code-block">openssl req -new -newkey rsa:2048 -nodes -keyout pass-signing.key -out pass-signing.csr -subj "/CN=Pass Signing Certificate"</div>
+    <p>Esto genera dos archivos:</p>
+    <ul>
+        <li><code>pass-signing.key</code> (clave privada)</li>
+        <li><code>pass-signing.csr</code> (solicitud)</li>
+    </ul>
+
+    <h3>Paso 2: Crear un Pass Type ID (si no lo tienes)</h3>
+    <div class="steps">
+        <div class="step">
+            <strong>1.</strong> Ve a: <code>https://developer.apple.com/account/resources/identifiers/list</code>
+        </div>
+        <div class="step">
+            <strong>2.</strong> Click <strong>+</strong> (arriba a la derecha)
+        </div>
+        <div class="step">
+            <strong>3.</strong> Selecciona <strong>Pass Type IDs</strong>
+        </div>
+        <div class="step">
+            <strong>4.</strong> Click <strong>Continue</strong>
+        </div>
+        <div class="step">
+            <strong>5.</strong> Ingresa Descripción: <code>Fideliza Loyalty Pass</code>
+        </div>
+        <div class="step">
+            <strong>6.</strong> Ingresa ID: <code>pass.{TU_TEAM_ID}.fideliza</code>
+        </div>
+        <div class="step">
+            <strong>7.</strong> Click <strong>Register</strong> → <strong>Done</strong>
+        </div>
+    </div>
+
+    <h3>Paso 3: Crear Wallet Signing Certificate</h3>
+    <div class="steps">
+        <div class="step">
+            <strong>1.</strong> Ve a: <code>https://developer.apple.com/account/resources/certificates/list</code>
+        </div>
+        <div class="step">
+            <strong>2.</strong> Click <strong>+</strong> (arriba a la derecha)
+        </div>
+        <div class="step">
+            <strong>3.</strong> Selecciona <strong>Pass Type ID Certificate</strong>
+        </div>
+        <div class="step">
+            <strong>4.</strong> Click <strong>Continue</strong>
+        </div>
+        <div class="step">
+            <strong>5.</strong> Selecciona tu Pass Type ID que acabas de crear
+        </div>
+        <div class="step">
+            <strong>6.</strong> Click <strong>Continue</strong>
+        </div>
+        <div class="step">
+            <strong>7.</strong> Sube el archivo <code>pass-signing.csr</code> que generaste en Paso 1
+        </div>
+        <div class="step">
+            <strong>8.</strong> Click <strong>Continue</strong> → <strong>Download</strong>
+        </div>
+    </div>
+    <p>El archivo se descargará como <code>pass.cer</code>. Guárdalo.</p>
+
+    <h3>Paso 4: Convertir .cer a .p12</h3>
+    <p><strong>Opción A: Usando openssl (recomendado)</strong></p>
+    <div class="code-block">openssl pkcs12 -export -in pass.cer -inkey pass-signing.key -out pass-signing.p12 -name 'Wallet Signing'</div>
+    <div class="warning">Te pedirá una contraseña: <strong>ingresa algo seguro</strong> (la necesitarás luego).</div>
+
+    <p style="margin-top: 20px;"><strong>Opción B: Usando Keychain Access (macOS)</strong></p>
+    <ul>
+        <li>Doble-click en <code>pass.cer</code> para importarlo a Keychain</li>
+        <li>Abre <strong>Keychain Access</strong> (Aplicaciones → Utilidades)</li>
+        <li>Busca <strong>Wallet Signing</strong> (o el CN que usaste)</li>
+        <li>Right-click → <strong>Export</strong></li>
+        <li>Guarda como <code>pass-signing.p12</code> con contraseña</li>
+    </ul>
+
+    <div class="section-break"></div>
+
+    <!-- Sección 3 -->
+    <h2>3. Obtener WWDR Certificate</h2>
+    <p>Este es el certificado intermedio de Apple que valida tu firma.</p>
+
+    <h3>Opción A: Descargar manualmente</h3>
+    <ul>
+        <li>Ve a: <code>https://www.apple.com/certificateauthority/</code></li>
+        <li>Busca <strong>Apple Worldwide Developer Relations CA 4</strong></li>
+        <li>Descarga <code>AppleWWDRCA4.cer</code></li>
+    </ul>
+
+    <h3>Opción B: Ya está en tu Mac</h3>
+    <ul>
+        <li>Abre <strong>Keychain Access</strong> → Busca <strong>Apple Worldwide Developer Relations CA 4</strong></li>
+        <li>Si lo encuentras, Right-click → <strong>Export</strong> → Guarda como <code>AppleWWDRCA4.cer</code></li>
+    </ul>
+
+    <div class="section-break"></div>
+
+    <!-- Sección 4 -->
+    <h2>4. Obtener APNs Private Key (.p8)</h2>
+    <p>Este es el certificado para enviar notificaciones push a los Wallets.</p>
+
+    <h3>Paso 1: Crear una Authentication Key</h3>
+    <div class="steps">
+        <div class="step"><strong>1.</strong> Ve a: <code>https://developer.apple.com/account/resources/authkeys/list</code></div>
+        <div class="step"><strong>2.</strong> Click <strong>+</strong> (arriba a la derecha)</div>
+        <div class="step"><strong>3.</strong> Selecciona <strong>Apple Push Notifications service (APNs)</strong></div>
+        <div class="step"><strong>4.</strong> Click <strong>Continue</strong></div>
+        <div class="step"><strong>5.</strong> Confirma el Team ID que aparece</div>
+        <div class="step"><strong>6.</strong> Click <strong>Register</strong></div>
+    </div>
+
+    <h3>Paso 2: Descargar la clave</h3>
+    <ul>
+        <li>Te mostrará un botón <strong>Download</strong></li>
+        <li>Descarga el archivo (será <code>AuthKey_XXXXXXXXXX.p8</code>)</li>
+        <li>Guárdalo en lugar seguro. <strong>No se puede descargar de nuevo.</strong></li>
+    </ul>
+
+    <div class="warning">⚠️ IMPORTANTE: Este es un archivo privado. Si lo pierdes, deberás crear una nueva clave.</div>
+
+    <h3>Paso 3: Anotar el Key ID</h3>
+    <p>En la pantalla de Apple Dev Console verás el <strong>Key ID</strong> (10 caracteres). Cópialo y guárdalo junto con el archivo .p8.</p>
+
+    <div class="section-break"></div>
+
+    <!-- Sección 5 -->
+    <h2>5. Exportar desde Keychain (si ya tienes certificados)</h2>
+    <p>Si ya creaste estos certificados antes, probablemente estén en tu Keychain.</p>
+
+    <h3>Paso a paso:</h3>
+    <ul>
+        <li>Abre <strong>Keychain Access</strong> (Aplicaciones → Utilidades)</li>
+        <li>En la barra de búsqueda, escribe <code>pass</code> o <code>wallet</code></li>
+        <li>Encontrarás <strong>Wallet Signing Certificate</strong> (con un icono de candado 🔒)</li>
+        <li>Right-click → <strong>Export...</strong></li>
+        <li>Selecciona formato <strong>Personal Information Exchange (.p12)</strong></li>
+        <li>Guarda el archivo: <code>pass-signing.p12</code></li>
+        <li>Ingresa la contraseña que usaste al crear el certificado</li>
+    </ul>
+
+    <div class="section-break"></div>
+
+    <!-- Sección 6 -->
+    <h2>6. Notas de Seguridad</h2>
+
+    <h3><span class="success">✅ DO (Haz esto):</span></h3>
+    <ul>
+        <li>Guarda los certificados en un lugar seguro</li>
+        <li>Usa contraseñas fuertes para los .p12</li>
+        <li>Nunca commitees los .p12 a git (deberán estar en .gitignore)</li>
+        <li>Nunca pastes las claves privadas en emails o chats públicos</li>
+        <li>Sube los certificados a Cloudflare como secrets (no en el código)</li>
+    </ul>
+
+    <h3><span class="error">❌ DON'T (No hagas esto):</span></h3>
+    <ul>
+        <li>No compartas las claves privadas</li>
+        <li>No almacenes las contraseñas en archivos de texto</li>
+        <li>No uses estos certificados en múltiples aplicaciones</li>
+        <li>No dejes los .p12 en la carpeta de descargas</li>
+    </ul>
+
+    <div class="section-break"></div>
+
+    <!-- Sección 7 -->
+    <h2>7. Estructura de Archivos Local</h2>
+    <p>Una vez tengas todos los certificados, guárdalos en una estructura ordenada:</p>
+
+    <div class="code-block">~/Apple/Wallet/
+├── pass-signing.p12
+├── AppleWWDRCA4.cer
+├── AuthKey_XXXXXXXXXX.p8
+└── notes.txt</div>
+
+    <p>El archivo <code>notes.txt</code> debe contener:</p>
+    <div class="code-block">Team ID: XXXXXXXXXX
+Pass Type ID: pass.XXXXXXXXXX.fideliza
+APNs Key ID: YYYYYYYYYY
+Contraseña .p12: [tu_contraseña_segura]</div>
+
+    <div class="section-break"></div>
+
+    <!-- Sección 8 -->
+    <h2>8. Validación de Certificados</h2>
+
+    <h3>Validar .p12</h3>
+    <div class="code-block">openssl pkcs12 -in pass-signing.p12 -nodes -nokeys</div>
+    <p>Deberías ver un certificado válido sin errores.</p>
+
+    <h3>Validar .cer</h3>
+    <div class="code-block">openssl x509 -in AppleWWDRCA4.cer -text -noout | head -20</div>
+    <p>Verifica que sea un certificado de Apple válido.</p>
+
+    <h3>Validar .p8</h3>
+    <div class="code-block">openssl pkey -in AuthKey_XXXXXXXXXX.p8 -text -noout | head</div>
+    <p>Verifica que sea una clave privada EC válida.</p>
+
+    <div class="section-break"></div>
+
+    <!-- Próximos pasos -->
+    <h2>Próximos Pasos</h2>
+    <p>Una vez tengas todos estos archivos listos, notifica que están disponibles para cargarlos en el proyecto Fideliza.</p>
+
+    <div class="warning">
+        <strong>Contactar cuando tengas los 4 archivos listos:</strong>
+        <ul style="margin-top: 10px; margin-left: 20px;">
+            <li><code>pass-signing.p12</code> + contraseña</li>
+            <li><code>AppleWWDRCA4.cer</code></li>
+            <li><code>AuthKey_XXXXXXXXXX.p8</code></li>
+            <li>Notas con Team ID, Pass Type ID, y Key ID</li>
+        </ul>
+    </div>
+</body>
+</html>

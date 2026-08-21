@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Wallet, CheckCircle2 } from "lucide-react";
+import { Wallet, CheckCircle2, Apple } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 import type { Business, Member, Program } from "@/lib/data";
@@ -77,7 +77,7 @@ function JoinPage() {
           <form onSubmit={submit} className="rounded-xl border bg-card p-6">
             <h1 className="text-lg font-bold">Únete a {business.name}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Regístrate y llévate tu tarjeta en Google Wallet. Junta {program.stamps_required} sellos
+              Regístrate y llévate tu tarjeta digital. Junta {program.stamps_required} sellos
               y gana: {program.reward_description}.
             </p>
             <div className="mt-4 grid gap-3">
@@ -99,20 +99,25 @@ function JoinPage() {
             <CheckCircle2 className="mx-auto h-10 w-10 text-green-600" />
             <h1 className="mt-2 text-lg font-bold">¡Listo, {result.member.full_name}!</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Tu tarjeta está creada. Agrégala a Google Wallet para llevarla en el celular.
+              Tu tarjeta está creada. Agrégala a tu Wallet digital.
             </p>
 
             {result.saveUrl ? (
-              <a href={result.saveUrl} target="_blank" rel="noreferrer" className="mt-4 inline-block">
-                <Button size="lg" className="gap-2">
-                  <Wallet className="h-5 w-5" /> Añadir a Google Wallet
+              <div className="mt-4 flex flex-col gap-3">
+                <a href={result.saveUrl} target="_blank" rel="noreferrer" className="block w-full">
+                  <Button size="lg" variant="default" className="w-full gap-2">
+                    <Wallet className="h-5 w-5" /> Añadir a Google Wallet
+                  </Button>
+                </a>
+                <Button size="lg" variant="outline" className="w-full gap-2" disabled>
+                  <Apple className="h-5 w-5" /> Añadir a Apple Wallet (próximamente)
                 </Button>
-              </a>
+              </div>
             ) : (
               <div className="mt-4 rounded-lg border border-dashed p-4 text-xs text-muted-foreground">
                 <Wallet className="mx-auto mb-2 h-6 w-6" />
-                Modo demo: el pase real de Google Wallet se activa cuando el negocio
-                configure sus credenciales de Google. Tu tarjeta ya quedó registrada.
+                Modo demo: los pases reales se activan cuando el negocio configure sus credenciales.
+                Tu tarjeta ya quedó registrada.
               </div>
             )}
 

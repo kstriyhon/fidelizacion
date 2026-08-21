@@ -496,6 +496,16 @@ export function Dashboard({
                               Inactivo
                             </span>
                           ) : null}
+                          {m.wallet_object_id ? (
+                            <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400" title="Google Wallet">
+                              Google ✓
+                            </span>
+                          ) : null}
+                          {m.apple_pass_serial_number ? (
+                            <span className="rounded-full bg-gray-500/15 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:text-gray-400" title="Apple Wallet">
+                              Apple ✓
+                            </span>
+                          ) : null}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {m.stamps}/{program?.stamps_required ?? "?"} sellos · {m.rewards_redeemed} premios

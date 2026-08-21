@@ -22,6 +22,17 @@ import {
   pushMessage,
   patchLoyaltyObject,
 } from "./wallet/google.server";
+import {
+  createMemberApplePass,
+  pushAppleStampUpdate,
+  pushAppleMessage,
+  broadcastApple,
+} from "./wallet/apple.server";
+import {
+  notifyStampUpdate,
+  notifyPersonalMessage,
+  notifyBroadcast,
+} from "./wallet/apns.server";
 
 async function loadMemberContext(memberId: string): Promise<{
   member: Member;
@@ -782,4 +793,206 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
       saveUrl: pass.saveUrl,
       mock: pass.mock,
     };
+  });
+
+// ===========================================================================
+// APPLE WALLET (PassKit)
+// ===========================================================================
+
+/** Crea un pase de Apple Wallet para un cliente. Similar a createMemberPass (Google). */
+export const createApplePassFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      programId: z.string().uuid(),
+      full_name: z.string().min(2),
+      phone: z.string().optional(),
+      email: z.string().email().optional().or(z.literal("")),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const db = getSupabaseAdmin();
+    const { data: program, error: pe } = await db
+      .from("loyalty_programs")
+      .select("*")
+      .eq("id", data.programId)
+      .eq("active", true)
+      .single();
+    if (pe || !program) throw new Error(`Programa no encontrado o inactivo: ${pe?.message ?? ""}`);
+
+    const { data: business, error: be } = await db
+      .from("loyalty_businesses")
+      .select("*")
+      .eq("id", program.business_id)
+      .single();
+    if (be || !business) throw new Error(`Comercio no encontrado: ${be?.message ?? ""}`);
+
+    // Crear pase de Apple
+    const applePass = await createMemberApplePass(
+      { id: "", full_name: data.full_name, stamps: 0 }, // ID temporal, se reemplaza después
+      program as Program,
+      business as Business,
+    );
+
+    // Guardar en database
+    const { error: insertError } = await db.from("loyalty_apple_passes").insert({
+      member_id: "", // Se actualiza después de crear el member
+      pass_type_id: applePass.serialNumber.split("-")[0], // Usar el formato correcto
+      serial_number: applePass.serialNumber,
+      auth_token: applePass.authToken,
+      signature: Buffer.from(""), // Se llenarría con la firma real en generatePKPass
+    });
+
+    if (insertError) throw new Error(`No se pudo crear pase de Apple: ${insertError.message}`);
+
+    return {
+      serialNumber: applePass.serialNumber,
+      downloadUrl: applePass.downloadUrl,
+      mock: applePass.mock,
+    };
+  });
+
+/** Agrega un sello y notifica al cliente via Apple Wallet + APNs. */
+export const addAppleStampFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      memberId: z.string().uuid(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser(data.token);
+    await requireMemberAccess(data.token, data.memberId);
+
+    const db = getSupabaseAdmin();
+    const { member, program, business } = await loadMemberContext(data.memberId);
+
+    // Sumar sello
+    const newStamps = member.stamps + 1;
+    const completed = newStamps >= program.stamps_required;
+
+    const { error: updateError } = await db
+      .from("loyalty_members")
+      .update({ stamps: completed ? 0 : newStamps, rewards_redeemed: completed ? (member.rewards_redeemed || 0) + 1 : member.rewards_redeemed })
+      .eq("id", member.id);
+
+    if (updateError) throw new Error(`No se pudo sumar sello: ${updateError.message}`);
+
+    // Registrar evento
+    await db.from("loyalty_stamp_events").insert({
+      member_id: member.id,
+      delta: 1,
+      kind: "stamp",
+      note: completed ? "Completó tarjeta" : null,
+    });
+
+    // Notificar via Apple (APNs)
+    const { data: devices } = await db
+      .from("loyalty_device_registrations")
+      .select("push_token")
+      .eq("member_id", member.id);
+
+    if (devices && devices.length > 0) {
+      const pushTokens = devices.map((d) => d.push_token);
+      const alert = completed
+        ? `¡Felicidades! Completaste la tarjeta de ${business.name} 🎉`
+        : `¡Nuevo sello! ${newStamps}/${program.stamps_required} en ${business.name}`;
+
+      await notifyStampUpdate(member.apple_pass_serial_number || "", newStamps, program.stamps_required, business.name, pushTokens);
+    }
+
+    return {
+      member: {
+        ...member,
+        stamps: completed ? 0 : newStamps,
+        rewards_redeemed: completed ? (member.rewards_redeemed || 0) + 1 : member.rewards_redeemed,
+      },
+      completed,
+    };
+  });
+
+/** Envía un mensaje personalizado a un cliente via Apple Wallet. */
+export const sendAppleMemberMessageFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      memberId: z.string().uuid(),
+      title: z.string(),
+      body: z.string(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireMemberAccess(data.token, data.memberId);
+
+    const db = getSupabaseAdmin();
+    const { member, business } = await loadMemberContext(data.memberId);
+
+    // Obtener dispositivos registrados
+    const { data: devices } = await db
+      .from("loyalty_device_registrations")
+      .select("push_token")
+      .eq("member_id", member.id);
+
+    if (!devices || devices.length === 0) {
+      return { sent: 0, mock: true };
+    }
+
+    const pushTokens = devices.map((d) => d.push_token);
+    const result = await notifyPersonalMessage(business.name, data.title, data.body, pushTokens);
+
+    return result;
+  });
+
+/** Envía un mensaje de broadcast a todos los clientes de un programa via Apple. */
+export const broadcastAppleFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      programId: z.string().uuid(),
+      title: z.string(),
+      body: z.string(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireProgramAccess(data.token, data.programId);
+
+    const db = getSupabaseAdmin();
+
+    // Obtener programa y negocio
+    const { data: program } = await db.from("loyalty_programs").select("*").eq("id", data.programId).single();
+
+    if (!program) throw new Error("Programa no encontrado");
+
+    const { data: business } = await db
+      .from("loyalty_businesses")
+      .select("*")
+      .eq("id", (program as Program).business_id)
+      .single();
+
+    // Obtener todos los dispositivos de clientes del programa
+    const { data: members } = await db
+      .from("loyalty_members")
+      .select("id")
+      .eq("program_id", data.programId);
+
+    if (!members || members.length === 0) {
+      return { sent: 0, failed: 0, mock: true };
+    }
+
+    // Obtener todos los tokens de estos clientes
+    const { data: deviceRegs } = await db
+      .from("loyalty_device_registrations")
+      .select("push_token")
+      .in(
+        "member_id",
+        members.map((m) => m.id),
+      );
+
+    if (!deviceRegs || deviceRegs.length === 0) {
+      return { sent: 0, failed: 0, mock: true };
+    }
+
+    const pushTokens = deviceRegs.map((d) => d.push_token);
+    const result = await notifyBroadcast((business as Business).name, data.body, pushTokens);
+
+    return result;
   });

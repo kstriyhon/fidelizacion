@@ -42,6 +42,7 @@ export type Member = {
   stamps: number;
   rewards_redeemed: number;
   wallet_object_id: string | null;
+  apple_pass_serial_number: string | null;
   enrolled_at: string;
   last_stamp_at: string | null;
 };

@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ejecutar Migración 0008 - Apple Wallet</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #1f2937;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 36px;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .steps {
+            display: grid;
+            gap: 30px;
+        }
+
+        .step {
+            border-left: 4px solid #667eea;
+            padding-left: 25px;
+            position: relative;
+        }
+
+        .step::before {
+            content: attr(data-step);
+            position: absolute;
+            left: -40px;
+            top: 0;
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .step h3 {
+            font-size: 20px;
+            color: #1f2937;
+            margin-bottom: 12px;
+        }
+
+        .step p {
+            color: #6b7280;
+            margin-bottom: 15px;
+            font-size: 15px;
+        }
+
+        .url-box {
+            background: #f3f4f6;
+            border-left: 4px solid #3b82f6;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+            font-family: 'Monaco', monospace;
+            font-size: 13px;
+            overflow-x: auto;
+            color: #1e40af;
+        }
+
+        .button-list {
+            list-style: none;
+            margin: 15px 0;
+            padding-left: 20px;
+        }
+
+        .button-list li {
+            margin-bottom: 10px;
+            position: relative;
+        }
+
+        .button-list li::before {
+            content: "→";
+            position: absolute;
+            left: -20px;
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .code-section {
+            background: #1f2937;
+            color: #10b981;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            line-height: 1.5;
+        }
+
+        .warning {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            color: #92400e;
+            font-size: 14px;
+        }
+
+        .success {
+            background: #dcfce7;
+            border-left: 4px solid #22c55e;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            color: #166534;
+            font-size: 14px;
+        }
+
+        .copy-btn {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 8px 16px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .copy-btn:hover {
+            background: #1e40af;
+        }
+
+        .footer {
+            background: #f9fafb;
+            padding: 30px 40px;
+            text-align: center;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .footer p {
+            color: #6b7280;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+
+        .checklist {
+            background: #f9fafb;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .checklist-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: white;
+            border-radius: 4px;
+        }
+
+        .checklist-item input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            margin-right: 12px;
+            cursor: pointer;
+        }
+
+        .checklist-item label {
+            flex: 1;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+
+        th, td {
+            border: 1px solid #e5e7eb;
+            padding: 12px;
+            text-align: left;
+        }
+
+        th {
+            background: #f3f4f6;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        tr:nth-child(even) {
+            background: #f9fafb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🗄️ Ejecutar Migración 0008</h1>
+            <p>Apple Wallet (PassKit) - Base de datos</p>
+        </div>
+
+        <div class="content">
+            <div class="steps">
+                <!-- Paso 1 -->
+                <div class="step" data-step="1">
+                    <h3>Abre Supabase Dashboard</h3>
+                    <p>Accede a la consola de Supabase y selecciona tu proyecto.</p>
+                    <div class="url-box">
+                        https://app.supabase.com
+                    </div>
+                    <p>Proyecto: <strong>solasuxfnoipziijibam</strong> (Fideliza)</p>
+                </div>
+
+                <!-- Paso 2 -->
+                <div class="step" data-step="2">
+                    <h3>Ve a SQL Editor</h3>
+                    <p>En el menú de la izquierda, busca y haz click en <strong>SQL Editor</strong>.</p>
+                    <div class="button-list">
+                        <li>Supabase Dashboard</li>
+                        <li>Menú izquierdo → "SQL Editor"</li>
+                        <li>Click en "+ New Query"</li>
+                    </div>
+                </div>
+
+                <!-- Paso 3 -->
+                <div class="step" data-step="3">
+                    <h3>Copia el SQL de la migración</h3>
+                    <p>El SQL está abajo. Cópialo completamente.</p>
+
+                    <div class="warning">
+                        <strong>⚠️ IMPORTANTE:</strong> Asegúrate de copiar TODO el SQL, desde el primer comentario hasta el final.
+                    </div>
+
+                    <div class="code-section" id="sqlCode">-- Migration: 0008_apple_wallet.sql
+-- Descripción: Tablas y columnas para soporte de Apple Wallet (PassKit)
+-- Fecha: 2026-08-19
+-- Autor: Claude Code
+
+-- ============================================================================
+-- 1. Tabla: loyalty_apple_passes
+-- ============================================================================
+
+CREATE TABLE loyalty_apple_passes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  member_id UUID NOT NULL REFERENCES loyalty_members(id) ON DELETE CASCADE,
+  pass_type_id TEXT NOT NULL,
+  serial_number TEXT NOT NULL,
+  auth_token TEXT NOT NULL,
+  signature BYTEA NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(member_id, pass_type_id)
+);
+
+CREATE INDEX idx_apple_passes_member ON loyalty_apple_passes(member_id);
+CREATE INDEX idx_apple_passes_serial ON loyalty_apple_passes(pass_type_id, serial_number);
+
+-- ============================================================================
+-- 2. Tabla: loyalty_device_registrations
+-- ============================================================================
+
+CREATE TABLE loyalty_device_registrations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  member_id UUID NOT NULL REFERENCES loyalty_members(id) ON DELETE CASCADE,
+  device_library_identifier TEXT NOT NULL,
+  push_token TEXT NOT NULL,
+  registered_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(member_id, device_library_identifier)
+);
+
+CREATE INDEX idx_device_registrations_member ON loyalty_device_registrations(member_id);
+CREATE INDEX idx_device_registrations_device ON loyalty_device_registrations(device_library_identifier);
+
+-- ============================================================================
+-- 3. Extender loyalty_members con Apple Wallet tracking
+-- ============================================================================
+
+ALTER TABLE loyalty_members
+ADD COLUMN IF NOT EXISTS apple_pass_serial_number TEXT NULLABLE;
+
+CREATE INDEX idx_members_apple_serial ON loyalty_members(apple_pass_serial_number)
+WHERE apple_pass_serial_number IS NOT NULL;
+
+-- ============================================================================
+-- 4. RLS (Row Level Security)
+-- ============================================================================
+
+ALTER TABLE loyalty_apple_passes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY apple_passes_select_service_role ON loyalty_apple_passes
+  FOR SELECT USING (auth.uid() = auth.uid() OR current_user_id() = 'service_role');
+
+CREATE POLICY apple_passes_insert_service_role ON loyalty_apple_passes
+  FOR INSERT WITH CHECK (auth.uid() = auth.uid() OR current_user_id() = 'service_role');
+
+CREATE POLICY apple_passes_update_service_role ON loyalty_apple_passes
+  FOR UPDATE USING (auth.uid() = auth.uid() OR current_user_id() = 'service_role');
+
+CREATE POLICY apple_passes_delete_service_role ON loyalty_apple_passes
+  FOR DELETE USING (auth.uid() = auth.uid() OR current_user_id() = 'service_role');
+
+ALTER TABLE loyalty_device_registrations ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY device_registrations_service_role ON loyalty_device_registrations
+  FOR ALL USING (current_user_id() = 'service_role');
+
+-- ============================================================================
+-- 5. Comentarios
+-- ============================================================================
+
+COMMENT ON TABLE loyalty_apple_passes IS
+  'Pases .pkpass de Apple Wallet generados. Un pase por cliente.';
+
+COMMENT ON TABLE loyalty_device_registrations IS
+  'Dispositivos registrados en PassKit web service para recibir push APNs.';
+
+COMMENT ON COLUMN loyalty_apple_passes.serial_number IS
+  'UUID único del pase (usado en URLs de PassKit web service).';
+
+COMMENT ON COLUMN loyalty_apple_passes.auth_token IS
+  'Token de autenticación para validar requests del cliente al web service.';
+
+COMMENT ON COLUMN loyalty_device_registrations.device_library_identifier IS
+  'Identificador único del dispositivo, asignado por Apple.';
+
+COMMENT ON COLUMN loyalty_device_registrations.push_token IS
+  'Token de APNs para enviar notificaciones push al dispositivo.';
