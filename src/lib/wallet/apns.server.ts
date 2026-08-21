@@ -1,16 +1,18 @@
 // APNs (Apple Push Notification service) — Envío de notificaciones push
 // SOLO SERVIDOR. Usa JWT ES256 para autenticarse con los servidores de Apple.
 //
-// Flujo:
-// 1. Generar JWT con la clave privada del APNs
-// 2. POST a api.push.apple.com con el token y el mensaje
-// 3. Apple entrega la notificación al dispositivo
+// IMPORTANTE (spec real de PassKit, no un app normal con su propio bundle id):
+// para pases de Wallet, el push es SIEMPRE "silencioso" — payload
+// `{"aps":{}}` y header `apns-topic` = passTypeIdentifier. Apple NO permite
+// texto de alerta custom en el push de un pase; el push solo le dice a
+// Wallet "andá a buscar la versión nueva" (GET al PassKit web service). El
+// texto que el usuario ve sale de `changeMessage` en el campo del pase que
+// cambió (ver buildPassInstance en apple.server.ts), no de este payload.
 //
 // Si está en modo "mock", no hace llamadas reales a Apple.
 
 import { getAppleWalletConfig, decodeBase64PrivateKey, type AppleWalletConfig } from "./apple-config.server";
 
-// Constantes de APNs
 const APNS_HOST = "https://api.push.apple.com";
 const APNS_PATH = "/3/device";
 const JWT_ALGORITHM = "ES256";
@@ -34,7 +36,7 @@ async function generateAPNsJWT(
     // Extraer el contenido base64 entre BEGIN y END
     const keyBase64 = keyPem
       .split("\n")
-      .slice(1, -1)
+      .filter((line) => !line.includes("-----"))
       .join("");
     const keyDer = Buffer.from(keyBase64, "base64");
 
@@ -67,11 +69,17 @@ async function generateAPNsJWT(
     const headerB64 = btoa(headerJson).replace(/[+/]/g, (c) => (c === "+" ? "-" : "_")).replace(/=/g, "");
     const payloadB64 = btoa(payloadJson).replace(/[+/]/g, (c) => (c === "+" ? "-" : "_")).replace(/=/g, "");
 
-    // 4. Firmar (ES256 = SHA-256 + ECDSA)
+    // 4. Firmar (ES256 = SHA-256 + ECDSA). Web Crypto devuelve la firma en
+    // formato IEEE P1363 (r||s de 64 bytes) que es exactamente lo que JWS
+    // ES256 espera — no hace falta reempaquetar a DER.
     const message = `${headerB64}.${payloadB64}`;
     const messageBuffer = new TextEncoder().encode(message);
 
-    const signature = await crypto.subtle.sign("ECDSA", key, messageBuffer);
+    const signature = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      key,
+      messageBuffer,
+    );
     const signatureB64 = Buffer.from(signature)
       .toString("base64")
       .replace(/[+/]/g, (c) => (c === "+" ? "-" : "_"))
@@ -85,176 +93,79 @@ async function generateAPNsJWT(
 
 // --- Envío de notificaciones ---
 
-interface APNsPayload {
-  aps: {
-    alert?: {
-      title?: string;
-      body: string;
-    };
-    sound?: string;
-    "mutable-content"?: 1;
-    "push-type"?: "alert" | "background";
-  };
-}
-
 /**
- * Envía una notificación push a un dispositivo via APNs.
- * Retorna éxito/fallo para cada dispositivo.
+ * Envía el push "silencioso" de actualización de pase a una lista de
+ * dispositivos. Es la única forma válida de push para PassKit — le dice a
+ * Wallet que vaya a re-descargar el pase actualizado.
  */
-export async function sendAPNsNotification(
+export async function sendAPNsPassUpdate(
   deviceTokens: string[],
-  alert: string,
   cfg: Extract<AppleWalletConfig, { mode: "live" }>
 ): Promise<{
   successful: string[];
-  failed: Array<{ token: string; error: string }>;
+  failed: Array<{ token: string; status: number; error: string }>;
 }> {
-  try {
-    // Generar JWT una sola vez (válido por 1 hora)
-    const jwtToken = await generateAPNsJWT(cfg.teamId, cfg.keyId, decodeBase64PrivateKey(cfg.apnsPrivateKeyP8Base64));
+  if (deviceTokens.length === 0) {
+    return { successful: [], failed: [] };
+  }
 
-    const successful: string[] = [];
-    const failed: Array<{ token: string; error: string }> = [];
+  const jwtToken = await generateAPNsJWT(cfg.teamId, cfg.keyId, decodeBase64PrivateKey(cfg.apnsPrivateKeyP8Base64));
 
-    // Enviar a cada dispositivo en paralelo
-    const promises = deviceTokens.map(async (token) => {
-      try {
-        const payload: APNsPayload = {
-          aps: {
-            alert: {
-              body: alert,
-            },
-            sound: "default",
-            "mutable-content": 1,
-            "push-type": "alert",
-          },
-        };
+  const successful: string[] = [];
+  const failed: Array<{ token: string; status: number; error: string }> = [];
 
-        const response = await fetch(`${APNS_HOST}${APNS_PATH}/${token}`, {
-          method: "POST",
-          headers: {
-            authorization: `bearer ${jwtToken}`,
-            "content-type": "application/json",
-            "apns-priority": "10",
-            "apns-push-type": "alert",
-          },
-          body: JSON.stringify(payload),
-        });
+  const results = await Promise.allSettled(
+    deviceTokens.map(async (token) => {
+      const response = await fetch(`${APNS_HOST}${APNS_PATH}/${token}`, {
+        method: "POST",
+        headers: {
+          authorization: `bearer ${jwtToken}`,
+          "content-type": "application/json",
+          "apns-topic": cfg.passTypeId,
+          "apns-push-type": "background",
+          "apns-priority": "5",
+        },
+        // Payload obligatorio para pases: aps vacío. Nada de alert/sound.
+        body: JSON.stringify({ aps: {} }),
+      });
 
-        if (response.ok) {
-          successful.push(token);
-        } else {
-          const errorText = await response.text();
-          failed.push({
-            token,
-            error: `${response.status}: ${errorText}`,
-          });
-        }
-      } catch (error) {
-        failed.push({
-          token,
-          error: error instanceof Error ? error.message : String(error),
-        });
+      if (response.ok) {
+        successful.push(token);
+      } else {
+        const errorText = await response.text();
+        failed.push({ token, status: response.status, error: errorText });
       }
-    });
+    }),
+  );
 
-    await Promise.all(promises);
-
-    return { successful, failed };
-  } catch (error) {
-    throw new Error(`Failed to send APNs notifications: ${error instanceof Error ? error.message : String(error)}`);
+  // Cualquier rechazo de red no capturado arriba (no debería pasar, pero por
+  // las dudas no se pierde silenciosamente).
+  for (const r of results) {
+    if (r.status === "rejected") {
+      failed.push({ token: "unknown", status: 0, error: String(r.reason) });
+    }
   }
+
+  return { successful, failed };
 }
 
-// --- API pública ---
-
 /**
- * Envía una notificación de sello a un cliente.
- * Busca los dispositivos registrados y envía via APNs.
+ * Envía el push de actualización a los dispositivos registrados de UN
+ * cliente (tras dar un sello, canjear, o mandarle un mensaje puntual).
  */
-export async function notifyStampUpdate(
-  serialNumber: string,
-  stamps: number,
-  stampsRequired: number,
-  businessName: string,
-  deviceTokens: string[]
+export async function notifyMemberPassUpdate(
+  deviceTokens: string[],
 ): Promise<{ sent: number; failed: number; mock: boolean }> {
   const cfg = getAppleWalletConfig();
-
-  if (cfg.mode === "mock") {
-    return { sent: 0, failed: 0, mock: true };
-  }
+  if (cfg.mode === "mock") return { sent: 0, failed: 0, mock: true };
+  if (deviceTokens.length === 0) return { sent: 0, failed: 0, mock: false };
 
   try {
-    const message = `¡Nuevo sello! 🎉 Tienes ${stamps}/${stampsRequired} sellos en ${businessName}`;
-    const result = await sendAPNsNotification(deviceTokens, message, cfg);
-
-    return {
-      sent: result.successful.length,
-      failed: result.failed.length,
-      mock: false,
-    };
+    const result = await sendAPNsPassUpdate(deviceTokens, cfg);
+    return { sent: result.successful.length, failed: result.failed.length, mock: false };
   } catch (error) {
-    console.error("Error notifying stamp update:", error);
+    console.error("Error sending Apple pass update push:", error);
     return { sent: 0, failed: deviceTokens.length, mock: false };
   }
 }
 
-/**
- * Envía una notificación personalizada a un cliente.
- */
-export async function notifyPersonalMessage(
-  businessName: string,
-  title: string,
-  body: string,
-  deviceTokens: string[]
-): Promise<{ sent: number; failed: number; mock: boolean }> {
-  const cfg = getAppleWalletConfig();
-
-  if (cfg.mode === "mock") {
-    return { sent: 0, failed: 0, mock: true };
-  }
-
-  try {
-    const message = `${businessName}: ${body}`;
-    const result = await sendAPNsNotification(deviceTokens, message, cfg);
-
-    return {
-      sent: result.successful.length,
-      failed: result.failed.length,
-      mock: false,
-    };
-  } catch (error) {
-    console.error("Error notifying personal message:", error);
-    return { sent: 0, failed: deviceTokens.length, mock: false };
-  }
-}
-
-/**
- * Envía una notificación de broadcast a múltiples dispositivos.
- */
-export async function notifyBroadcast(
-  businessName: string,
-  message: string,
-  allDeviceTokens: string[]
-): Promise<{ sent: number; failed: number; mock: boolean }> {
-  const cfg = getAppleWalletConfig();
-
-  if (cfg.mode === "mock") {
-    return { sent: 0, failed: 0, mock: true };
-  }
-
-  try {
-    const fullMessage = `${businessName}: ${message}`;
-    const result = await sendAPNsNotification(allDeviceTokens, fullMessage, cfg);
-
-    return {
-      sent: result.successful.length,
-      failed: result.failed.length,
-      mock: false,
-    };
-  } catch (error) {
-    console.error("Error notifying broadcast:", error);
-    return { sent: 0, failed: allDeviceTokens.length, mock: false };
-  }
-}

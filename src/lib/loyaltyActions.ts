@@ -22,18 +22,51 @@ import {
   pushMessage,
   patchLoyaltyObject,
 } from "./wallet/google.server";
-import {
-  createMemberApplePass,
-  pushAppleStampUpdate,
-  pushAppleMessage,
-  broadcastApple,
-} from "./wallet/apple.server";
+import { createMemberApplePass, regenerateApplePassBuffer } from "./wallet/apple.server";
 import { getAppleWalletConfig } from "./wallet/apple-config.server";
-import {
-  notifyStampUpdate,
-  notifyPersonalMessage,
-  notifyBroadcast,
-} from "./wallet/apns.server";
+import { notifyMemberPassUpdate } from "./wallet/apns.server";
+
+/**
+ * Refirma el pase de Apple de un cliente (si tiene uno) con datos frescos y
+ * empuja el push de actualización a sus dispositivos registrados. Best-effort:
+ * si el cliente no tiene pase de Apple, está en modo mock, o algo falla, no
+ * bloquea la operación principal (dar sello / canjear / mandar mensaje) —
+ * Google Wallet ya se actualizó igual.
+ */
+async function syncApplePass(
+  member: { id: string; full_name: string; stamps: number; apple_pass_serial_number: string | null },
+  program: Program,
+  business: Business,
+  opts?: { stampChangeMessage?: string; auxiliaryMessage?: string },
+): Promise<void> {
+  if (!member.apple_pass_serial_number) return;
+  const serialNumber = member.apple_pass_serial_number;
+
+  try {
+    const db = getSupabaseAdmin();
+    const appleCfg = getAppleWalletConfig();
+
+    const { pkpassBuffer, mock } = await regenerateApplePassBuffer(member, program, business, serialNumber, opts);
+    if (mock || !pkpassBuffer) return;
+
+    await db
+      .from("loyalty_apple_passes")
+      .update({ signature: "\\x" + pkpassBuffer.toString("hex"), updated_at: new Date().toISOString() })
+      .eq("pass_type_id", appleCfg.passTypeId)
+      .eq("serial_number", serialNumber);
+
+    const { data: devices } = await db
+      .from("loyalty_device_registrations")
+      .select("push_token")
+      .eq("member_id", member.id);
+    const tokens = (devices ?? []).map((d) => d.push_token as string).filter(Boolean);
+    if (tokens.length > 0) {
+      await notifyMemberPassUpdate(tokens);
+    }
+  } catch (err) {
+    console.warn("syncApplePass:", err);
+  }
+}
 
 async function loadMemberContext(memberId: string): Promise<{
   member: Member;
@@ -555,6 +588,10 @@ export const addStampFn = createServerFn({ method: "POST" })
       message,
     );
 
+    await syncApplePass(updated as Member, program, business, {
+      stampChangeMessage: completed ? message.header : message.body,
+    });
+
     return { member: updated as Member, completed, push };
   });
 
@@ -592,6 +629,11 @@ export const redeemRewardFn = createServerFn({ method: "POST" })
         body: `¡Gracias por tu visita a ${business.name}! Empieza una nueva tarjeta.`,
       },
     );
+
+    await syncApplePass(updated as Member, program, business, {
+      stampChangeMessage: "Premio canjeado ✅ ¡Gracias por tu visita!",
+    });
+
     return { member: updated as Member, push };
   });
 
@@ -659,13 +701,15 @@ export const sendMemberMessageFn = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await requireMemberAccess(data.token, data.memberId);
-    const { member, business } = await loadMemberContext(data.memberId);
+    const { member, program, business } = await loadMemberContext(data.memberId);
     const vars: Record<string, string> = { nombre: member.full_name, negocio: business.name };
     const fill = (s: string) => s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
-    const push = await pushMessage(member.id, {
-      header: fill(data.title),
-      body: fill(data.body),
-    });
+    const title = fill(data.title);
+    const body = fill(data.body);
+    const push = await pushMessage(member.id, { header: title, body });
+
+    await syncApplePass(member, program, business, { auxiliaryMessage: `${title}: ${body}` });
+
     return { push };
   });
 
@@ -684,33 +728,37 @@ export const broadcastFn = createServerFn({ method: "POST" })
     const db = getSupabaseAdmin();
     const { data: prog } = await db
       .from("loyalty_programs")
-      .select("business_id, loyalty_businesses(name, status)")
+      .select("*, loyalty_businesses(name, status)")
       .eq("id", data.programId)
       .single();
-    const biz = (prog as { loyalty_businesses?: { name?: string; status?: string } } | null)
+    const biz = (prog as (Program & { loyalty_businesses?: { name?: string; status?: string } }) | null)
       ?.loyalty_businesses;
     if (biz?.status === "paused") {
       throw new Error("Servicio pausado. Contacta al administrador para reactivarlo.");
     }
     const businessName = biz?.name ?? "";
+    const business: Business = { ...(biz as Business), name: businessName };
 
     const { data: members, error: me } = await db
       .from("loyalty_members")
-      .select("id, full_name")
+      .select("id, full_name, stamps, apple_pass_serial_number")
       .eq("program_id", data.programId);
     if (me) throw new Error(`No se pudieron cargar los clientes: ${me.message}`);
 
-    const list = (members ?? []) as { id: string; full_name: string }[];
+    const list = (members ?? []) as { id: string; full_name: string; stamps: number; apple_pass_serial_number: string | null }[];
     const fill = (s: string, name: string) =>
       s.replace(/\{negocio\}/g, businessName).replace(/\{nombre\}/g, name);
 
     const results = await Promise.allSettled(
-      list.map((m) =>
-        pushMessage(m.id, {
-          header: fill(data.title, m.full_name),
-          body: fill(data.body, m.full_name),
-        }),
-      ),
+      list.map(async (m) => {
+        const title = fill(data.title, m.full_name);
+        const body = fill(data.body, m.full_name);
+        const push = await pushMessage(m.id, { header: title, body });
+        if (prog) {
+          await syncApplePass(m, prog as Program, business, { auxiliaryMessage: `${title}: ${body}` });
+        }
+        return push;
+      }),
     );
     const fulfilled = results.filter(
       (r): r is PromiseFulfilledResult<{ sent: boolean; mock: boolean }> => r.status === "fulfilled",
@@ -838,150 +886,4 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
       appleDownloadUrl,
       appleMock,
     };
-  });
-
-/** Agrega un sello y notifica al cliente via Apple Wallet + APNs. */
-export const addAppleStampFn = createServerFn({ method: "POST" })
-  .validator(
-    z.object({
-      token: z.string(),
-      memberId: z.string().uuid(),
-    }),
-  )
-  .handler(async ({ data }) => {
-    const user = await requireUser(data.token);
-    await requireMemberAccess(data.token, data.memberId);
-
-    const db = getSupabaseAdmin();
-    const { member, program, business } = await loadMemberContext(data.memberId);
-
-    // Sumar sello
-    const newStamps = member.stamps + 1;
-    const completed = newStamps >= program.stamps_required;
-
-    const { error: updateError } = await db
-      .from("loyalty_members")
-      .update({ stamps: completed ? 0 : newStamps, rewards_redeemed: completed ? (member.rewards_redeemed || 0) + 1 : member.rewards_redeemed })
-      .eq("id", member.id);
-
-    if (updateError) throw new Error(`No se pudo sumar sello: ${updateError.message}`);
-
-    // Registrar evento
-    await db.from("loyalty_stamp_events").insert({
-      member_id: member.id,
-      delta: 1,
-      kind: "stamp",
-      note: completed ? "Completó tarjeta" : null,
-    });
-
-    // Notificar via Apple (APNs)
-    const { data: devices } = await db
-      .from("loyalty_device_registrations")
-      .select("push_token")
-      .eq("member_id", member.id);
-
-    if (devices && devices.length > 0) {
-      const pushTokens = devices.map((d) => d.push_token);
-      const alert = completed
-        ? `¡Felicidades! Completaste la tarjeta de ${business.name} 🎉`
-        : `¡Nuevo sello! ${newStamps}/${program.stamps_required} en ${business.name}`;
-
-      await notifyStampUpdate(member.apple_pass_serial_number || "", newStamps, program.stamps_required, business.name, pushTokens);
-    }
-
-    return {
-      member: {
-        ...member,
-        stamps: completed ? 0 : newStamps,
-        rewards_redeemed: completed ? (member.rewards_redeemed || 0) + 1 : member.rewards_redeemed,
-      },
-      completed,
-    };
-  });
-
-/** Envía un mensaje personalizado a un cliente via Apple Wallet. */
-export const sendAppleMemberMessageFn = createServerFn({ method: "POST" })
-  .validator(
-    z.object({
-      token: z.string(),
-      memberId: z.string().uuid(),
-      title: z.string(),
-      body: z.string(),
-    }),
-  )
-  .handler(async ({ data }) => {
-    await requireMemberAccess(data.token, data.memberId);
-
-    const db = getSupabaseAdmin();
-    const { member, business } = await loadMemberContext(data.memberId);
-
-    // Obtener dispositivos registrados
-    const { data: devices } = await db
-      .from("loyalty_device_registrations")
-      .select("push_token")
-      .eq("member_id", member.id);
-
-    if (!devices || devices.length === 0) {
-      return { sent: 0, mock: true };
-    }
-
-    const pushTokens = devices.map((d) => d.push_token);
-    const result = await notifyPersonalMessage(business.name, data.title, data.body, pushTokens);
-
-    return result;
-  });
-
-/** Envía un mensaje de broadcast a todos los clientes de un programa via Apple. */
-export const broadcastAppleFn = createServerFn({ method: "POST" })
-  .validator(
-    z.object({
-      token: z.string(),
-      programId: z.string().uuid(),
-      title: z.string(),
-      body: z.string(),
-    }),
-  )
-  .handler(async ({ data }) => {
-    await requireProgramAccess(data.token, data.programId);
-
-    const db = getSupabaseAdmin();
-
-    // Obtener programa y negocio
-    const { data: program } = await db.from("loyalty_programs").select("*").eq("id", data.programId).single();
-
-    if (!program) throw new Error("Programa no encontrado");
-
-    const { data: business } = await db
-      .from("loyalty_businesses")
-      .select("*")
-      .eq("id", (program as Program).business_id)
-      .single();
-
-    // Obtener todos los dispositivos de clientes del programa
-    const { data: members } = await db
-      .from("loyalty_members")
-      .select("id")
-      .eq("program_id", data.programId);
-
-    if (!members || members.length === 0) {
-      return { sent: 0, failed: 0, mock: true };
-    }
-
-    // Obtener todos los tokens de estos clientes
-    const { data: deviceRegs } = await db
-      .from("loyalty_device_registrations")
-      .select("push_token")
-      .in(
-        "member_id",
-        members.map((m) => m.id),
-      );
-
-    if (!deviceRegs || deviceRegs.length === 0) {
-      return { sent: 0, failed: 0, mock: true };
-    }
-
-    const pushTokens = deviceRegs.map((d) => d.push_token);
-    const result = await notifyBroadcast((business as Business).name, data.body, pushTokens);
-
-    return result;
   });

@@ -62,7 +62,7 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
       return json({ error: "Pass not available (mock mode or not yet generated)" }, 404);
     }
 
-    return new Response(bytes, {
+    return new Response(new Uint8Array(bytes), {
       status: 200,
       headers: {
         "content-type": "application/vnd.apple.pkpass",
@@ -130,7 +130,7 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
     if (!isDeviceRoute && request.method === "GET") {
       const bytes = decodeBytea(applePass.signature);
       if (!bytes || bytes.length === 0) return json({ error: "Pass not available" }, 404);
-      return new Response(bytes, {
+      return new Response(new Uint8Array(bytes), {
         status: 200,
         headers: {
           "content-type": "application/vnd.apple.pkpass",

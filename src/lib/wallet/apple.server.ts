@@ -61,6 +61,29 @@ function sanitizeId(id: string): string {
 
 // --- Modelos JSON para el pase .pkpass -----------------------------------------
 
+// Campo de un pase (spec de Apple): dentro de headerFields/primaryFields/
+// secondaryFields/auxiliaryFields/backFields. `changeMessage` es lo que
+// Wallet muestra como notificación nativa cuando el campo cambia de valor
+// tras un push de actualización (%@ se sustituye por el nuevo `value`).
+interface PassField {
+  key: string;
+  label: string;
+  value: string | number;
+  changeMessage?: string;
+}
+
+// Apple exige EXACTAMENTE una de estas 5 claves de estilo a nivel raíz
+// (boardingPass/coupon/eventTicket/generic/storeCard) con los campos
+// agrupados adentro — NO existen headerFields/backFields ni "loyaltyPoints"
+// sueltos a nivel raíz (eso es un concepto de Google Wallet, no de Apple).
+interface StoreCardStyle {
+  headerFields?: PassField[];
+  primaryFields?: PassField[];
+  secondaryFields?: PassField[];
+  auxiliaryFields?: PassField[];
+  backFields?: PassField[];
+}
+
 interface PassTemplate {
   formatVersion: number;
   passTypeIdentifier: string;
@@ -69,7 +92,6 @@ interface PassTemplate {
   organizationName: string;
   description: string;
   logoText: string;
-  teamIdentifier: string;
   barcode: {
     format: string;
     message: string;
@@ -79,23 +101,15 @@ interface PassTemplate {
     latitude: number;
     longitude: number;
   }>;
-  loyaltyPoints?: {
-    label: string;
-    balance: number;
-    balanceFormat?: string;
-  };
+  storeCard: StoreCardStyle;
   backgroundColor: string;
   foregroundColor: string;
   textColor: string;
+  labelColor: string;
 }
 
 interface PassInstance extends PassTemplate {
   serialNumber: string;
-  backFields?: Array<{
-    key: string;
-    label: string;
-    value: string;
-  }>;
 }
 
 // --- Construcción de pases ---------------------------------------------------
@@ -131,14 +145,11 @@ export function buildPassTemplate(cfg: AppleWalletConfig, program: ProgramLike, 
           ],
         }
       : {}),
-    loyaltyPoints: {
-      label: "Sellos",
-      balance: 0,
-      balanceFormat: "%li",
-    },
-    // Colores: fondo azul, texto blanco
+    storeCard: {}, // se llena en buildPassInstance (necesita stamps del member)
+    // Colores: fondo del color de marca, texto blanco
     backgroundColor: `rgb(${parseInt(brandColor.substr(0, 2), 16)},${parseInt(brandColor.substr(2, 2), 16)},${parseInt(brandColor.substr(4, 2), 16)})`,
     foregroundColor: "rgb(255, 255, 255)",
+    labelColor: "rgb(255, 255, 255)",
     textColor: "rgb(255, 255, 255)",
   };
 }
@@ -146,12 +157,22 @@ export function buildPassTemplate(cfg: AppleWalletConfig, program: ProgramLike, 
 /**
  * Construye la instancia del pase para un cliente específico.
  * Similar a buildObject en Google Wallet.
+ *
+ * Apple NO permite texto de push arbitrario para pases — lo único que puede
+ * mostrar Wallet como notificación nativa es el `changeMessage` de un campo
+ * cuyo `value` cambió respecto al pase anterior instalado ("%@" se sustituye
+ * por el nuevo valor). Por eso:
+ *   - `stampChangeMessage`: se pone en el campo "balance" (para "diste un sello").
+ *   - `auxiliaryMessage`: agrega un campo "message" cuyo VALOR es el texto que
+ *     se quiere mostrar y `changeMessage: "%@"` — así el texto completo sale
+ *     en la notificación (truco estándar para "mandar un mensaje" con PassKit).
  */
 export function buildPassInstance(
   template: PassTemplate,
   member: MemberLike,
   program: ProgramLike,
-  serialNumber: string
+  serialNumber: string,
+  opts?: { stampChangeMessage?: string; auxiliaryMessage?: string },
 ): PassInstance {
   return {
     ...template,
@@ -160,22 +181,47 @@ export function buildPassInstance(
       ...template.barcode,
       message: member.id, // QR con el ID del cliente
     },
-    loyaltyPoints: {
-      ...template.loyaltyPoints,
-      balance: member.stamps,
+    storeCard: {
+      primaryFields: [
+        {
+          key: "balance",
+          label: "Sellos",
+          value: `${member.stamps}/${program.stamps_required}`,
+          ...(opts?.stampChangeMessage ? { changeMessage: opts.stampChangeMessage } : {}),
+        },
+      ],
+      secondaryFields: [
+        {
+          key: "reward",
+          label: "Premio",
+          value: program.reward_description,
+        },
+      ],
+      ...(opts?.auxiliaryMessage
+        ? {
+            auxiliaryFields: [
+              {
+                key: "message",
+                label: "Aviso",
+                value: opts.auxiliaryMessage,
+                changeMessage: "%@",
+              },
+            ],
+          }
+        : {}),
+      backFields: [
+        {
+          key: "reward_detail",
+          label: "Premio",
+          value: `${program.stamps_required} sellos = ${program.reward_description}`,
+        },
+        {
+          key: "client_name",
+          label: "Cliente",
+          value: member.full_name,
+        },
+      ],
     },
-    backFields: [
-      {
-        key: "reward",
-        label: "Premio",
-        value: `${program.stamps_required} sellos = ${program.reward_description}`,
-      },
-      {
-        key: "client_name",
-        label: "Cliente",
-        value: member.full_name,
-      },
-    ],
   };
 }
 
@@ -389,59 +435,43 @@ export async function createMemberApplePass(
 }
 
 /**
- * Actualiza el saldo de sellos de un pase existente.
- * (Será implementado en Phase 4: APNs)
+ * Reconstruye y refirma el .pkpass de un cliente que YA tiene un pase
+ * (mismo serialNumber y passTypeIdentifier — Wallet lo reconoce como el
+ * mismo pase instalado, no uno nuevo). Se usa cuando cambian los sellos o se
+ * quiere mandar un mensaje puntual. El caller (loyaltyActions.ts) es quien
+ * persiste el buffer resultante en `loyalty_apple_passes.signature` y quien
+ * dispara el push por APNs a los dispositivos registrados de ese cliente.
+ *
+ * `opts.stampChangeMessage`: texto para la notificación al cambiar sellos.
+ * `opts.auxiliaryMessage`: mensaje puntual (mismo mecanismo, campo distinto).
  */
-export async function pushAppleStampUpdate(
+export async function regenerateApplePassBuffer(
   member: MemberLike,
   program: ProgramLike,
   business: BusinessLike,
   serialNumber: string,
-  message?: { title: string; body: string }
-): Promise<{ pushed: boolean; mock: boolean }> {
+  opts?: { stampChangeMessage?: string; auxiliaryMessage?: string },
+  logoBase64: string | null = null,
+): Promise<{ pkpassBuffer: Buffer | null; mock: boolean }> {
   const cfg = getAppleWalletConfig();
 
   if (cfg.mode === "mock") {
-    return { pushed: false, mock: true };
+    return { pkpassBuffer: null, mock: true };
   }
 
-  // TODO: Implementar en Phase 4 (APNs push)
-  // Por ahora, solo retornamos éxito simulado
-  return { pushed: true, mock: false };
-}
+  try {
+    const template = buildPassTemplate(cfg, program, business);
+    const passInstance = buildPassInstance(template, member, program, serialNumber, opts);
 
-/**
- * Envía un mensaje puntual a un pase sin cambiar sellos.
- * (Será implementado en Phase 4: APNs)
- */
-export async function pushAppleMessage(
-  serialNumber: string,
-  message: { title: string; body: string }
-): Promise<{ sent: boolean; mock: boolean }> {
-  const cfg = getAppleWalletConfig();
+    const certP12Buffer = decodeBase64Certificate(cfg.certificateP12Base64);
+    const wwdrCertBuffer = decodeBase64Certificate(cfg.wwdrCertificateBase64);
 
-  if (cfg.mode === "mock") {
-    return { sent: false, mock: true };
+    const passJsonString = JSON.stringify(passInstance);
+    const signature = await signPass(passJsonString, certP12Buffer, cfg.certificatePassword, wwdrCertBuffer);
+    const pkpassBuffer = await generatePKPass(passInstance, logoBase64, signature, cfg);
+
+    return { pkpassBuffer, mock: false };
+  } catch (error) {
+    throw new Error(`Failed to regenerate Apple pass: ${error instanceof Error ? error.message : String(error)}`);
   }
-
-  // TODO: Implementar en Phase 4 (APNs)
-  return { sent: true, mock: false };
-}
-
-/**
- * Envía un mensaje a TODOS los clientes de un programa.
- * (Será implementado en Phase 4: APNs broadcast)
- */
-export async function broadcastApple(
-  programId: string,
-  message: { title: string; body: string }
-): Promise<{ sent: number; failed: number; mock: boolean }> {
-  const cfg = getAppleWalletConfig();
-
-  if (cfg.mode === "mock") {
-    return { sent: 0, failed: 0, mock: true };
-  }
-
-  // TODO: Implementar en Phase 4
-  return { sent: 0, failed: 0, mock: false };
 }
