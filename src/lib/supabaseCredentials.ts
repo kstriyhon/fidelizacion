@@ -9,7 +9,7 @@
 // Si en el futuro quieres apuntar a otro proyecto de Supabase, cambia estos dos
 // valores (o vuelve a introducir la lógica de import.meta.env.VITE_*).
 
-export const SUPABASE_URL = "https://solasuxfnoipziijibam.supabase.co";
+export const SUPABASE_URL = "https://zkecrbagxwewtubnusls.supabase.co";
 
 export const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvbGFzdXhmbm9pcHppaWppYmFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0MjU5NjUsImV4cCI6MjEwMTAwMTk2NX0.iLnq9QtlH2A83F57l-RYbSGVv3hmJbCxMbCUcoR5mG0";
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprZWNyYmFneHdld3R1Ym51c2xzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyNzUwMjAsImV4cCI6MjEwMjg1MTAyMH0.8l93un0mFECkz7J6Uhw1BegJaTRc-2RB_WT-Qtc0soQ";

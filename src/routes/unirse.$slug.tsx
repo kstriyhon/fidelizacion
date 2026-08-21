@@ -38,7 +38,13 @@ function JoinPage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
-  const [result, setResult] = useState<{ member: Member; saveUrl: string | null; mock: boolean } | null>(null);
+  const [result, setResult] = useState<{
+    member: Member;
+    saveUrl: string | null;
+    mock: boolean;
+    appleDownloadUrl: string | null;
+    appleMock: boolean;
+  } | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -102,24 +108,36 @@ function JoinPage() {
               Tu tarjeta está creada. Agrégala a tu Wallet digital.
             </p>
 
-            {result.saveUrl ? (
-              <div className="mt-4 flex flex-col gap-3">
+            <div className="mt-4 flex flex-col gap-3">
+              {result.saveUrl ? (
                 <a href={result.saveUrl} target="_blank" rel="noreferrer" className="block w-full">
                   <Button size="lg" variant="default" className="w-full gap-2">
                     <Wallet className="h-5 w-5" /> Añadir a Google Wallet
                   </Button>
                 </a>
-                <Button size="lg" variant="outline" className="w-full gap-2" disabled>
-                  <Apple className="h-5 w-5" /> Añadir a Apple Wallet (próximamente)
-                </Button>
-              </div>
-            ) : (
-              <div className="mt-4 rounded-lg border border-dashed p-4 text-xs text-muted-foreground">
-                <Wallet className="mx-auto mb-2 h-6 w-6" />
-                Modo demo: los pases reales se activan cuando el negocio configure sus credenciales.
-                Tu tarjeta ya quedó registrada.
-              </div>
-            )}
+              ) : null}
+
+              {result.appleDownloadUrl && !result.appleMock ? (
+                <a href={result.appleDownloadUrl} className="block w-full">
+                  <Button size="lg" variant="outline" className="w-full gap-2">
+                    <Apple className="h-5 w-5" /> Añadir a Apple Wallet
+                  </Button>
+                </a>
+              ) : null}
+
+              {(!result.saveUrl || result.appleMock) && (
+                <div className="rounded-lg border border-dashed p-4 text-xs text-muted-foreground">
+                  <Wallet className="mx-auto mb-2 h-6 w-6" />
+                  Modo demo: los pases reales se activan cuando el negocio configure sus credenciales
+                  {!result.saveUrl && result.appleMock
+                    ? " de Google y Apple Wallet."
+                    : !result.saveUrl
+                      ? " de Google Wallet."
+                      : " de Apple Wallet."}{" "}
+                  Tu tarjeta ya quedó registrada.
+                </div>
+              )}
+            </div>
 
             <p className="mt-4 text-xs text-muted-foreground">
               Muestra el código QR de tu tarjeta en cada visita para sumar sellos.

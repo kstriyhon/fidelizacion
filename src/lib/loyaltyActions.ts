@@ -28,6 +28,7 @@ import {
   pushAppleMessage,
   broadcastApple,
 } from "./wallet/apple.server";
+import { getAppleWalletConfig } from "./wallet/apple-config.server";
 import {
   notifyStampUpdate,
   notifyPersonalMessage,
@@ -775,6 +776,44 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
 
     await db.from("loyalty_members").update({ wallet_object_id: pass.objectId }).eq("id", member.id);
 
+    // Pase de Apple Wallet (best-effort: si falla, no bloquea la inscripción —
+    // el cliente igual queda registrado y puede usar Google Wallet).
+    let appleDownloadUrl: string | null = null;
+    let appleMock = true;
+    let appleSerialNumber: string | null = null;
+    try {
+      const appleCfg = getAppleWalletConfig();
+      const applePass = await createMemberApplePass(
+        { id: member.id, full_name: member.full_name, stamps: member.stamps },
+        program as Program,
+        business as Business,
+      );
+      const { error: appleInsertError } = await db.from("loyalty_apple_passes").insert({
+        member_id: member.id,
+        pass_type_id: appleCfg.passTypeId,
+        serial_number: applePass.serialNumber,
+        auth_token: applePass.authToken,
+        // El .pkpass completo (ZIP firmado) se guarda acá para poder
+        // servirlo desde /api/passkit/download/:serial. En modo mock no hay
+        // pase real, se guarda vacío solo para trackear el intento.
+        // PostgREST espera bytea como texto hex "\x..." — pasar un Buffer
+        // directo se serializa mal (queda como JSON {"type":"Buffer",...}).
+        signature: "\\x" + (applePass.pkpassBuffer ?? Buffer.from("")).toString("hex"),
+      });
+      if (appleInsertError) throw new Error(appleInsertError.message);
+
+      await db
+        .from("loyalty_members")
+        .update({ apple_pass_serial_number: applePass.serialNumber })
+        .eq("id", member.id);
+
+      appleDownloadUrl = applePass.downloadUrl;
+      appleMock = applePass.mock;
+      appleSerialNumber = applePass.serialNumber;
+    } catch (err) {
+      console.warn("apple pass creation:", err);
+    }
+
     // Mensaje de bienvenida en el pase (aparece al agregar la tarjeta).
     try {
       const tpl =
@@ -789,65 +828,15 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
     }
 
     return {
-      member: { ...(member as Member), wallet_object_id: pass.objectId },
+      member: {
+        ...(member as Member),
+        wallet_object_id: pass.objectId,
+        apple_pass_serial_number: appleSerialNumber,
+      },
       saveUrl: pass.saveUrl,
       mock: pass.mock,
-    };
-  });
-
-// ===========================================================================
-// APPLE WALLET (PassKit)
-// ===========================================================================
-
-/** Crea un pase de Apple Wallet para un cliente. Similar a createMemberPass (Google). */
-export const createApplePassFn = createServerFn({ method: "POST" })
-  .validator(
-    z.object({
-      programId: z.string().uuid(),
-      full_name: z.string().min(2),
-      phone: z.string().optional(),
-      email: z.string().email().optional().or(z.literal("")),
-    }),
-  )
-  .handler(async ({ data }) => {
-    const db = getSupabaseAdmin();
-    const { data: program, error: pe } = await db
-      .from("loyalty_programs")
-      .select("*")
-      .eq("id", data.programId)
-      .eq("active", true)
-      .single();
-    if (pe || !program) throw new Error(`Programa no encontrado o inactivo: ${pe?.message ?? ""}`);
-
-    const { data: business, error: be } = await db
-      .from("loyalty_businesses")
-      .select("*")
-      .eq("id", program.business_id)
-      .single();
-    if (be || !business) throw new Error(`Comercio no encontrado: ${be?.message ?? ""}`);
-
-    // Crear pase de Apple
-    const applePass = await createMemberApplePass(
-      { id: "", full_name: data.full_name, stamps: 0 }, // ID temporal, se reemplaza después
-      program as Program,
-      business as Business,
-    );
-
-    // Guardar en database
-    const { error: insertError } = await db.from("loyalty_apple_passes").insert({
-      member_id: "", // Se actualiza después de crear el member
-      pass_type_id: applePass.serialNumber.split("-")[0], // Usar el formato correcto
-      serial_number: applePass.serialNumber,
-      auth_token: applePass.authToken,
-      signature: Buffer.from(""), // Se llenarría con la firma real en generatePKPass
-    });
-
-    if (insertError) throw new Error(`No se pudo crear pase de Apple: ${insertError.message}`);
-
-    return {
-      serialNumber: applePass.serialNumber,
-      downloadUrl: applePass.downloadUrl,
-      mock: applePass.mock,
+      appleDownloadUrl,
+      appleMock,
     };
   });
 

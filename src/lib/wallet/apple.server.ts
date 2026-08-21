@@ -10,7 +10,9 @@
 // Si la config está en modo "mock", estas funciones NO generan pases reales:
 // devuelven URLs simuladas para poder demostrar el flujo.
 
-import * as forge from "node-forge";
+// node-forge es CJS; en ESM sus miembros (asn1, pki, pkcs7, md, ...) solo
+// existen bajo el default export, no en el namespace `import *`.
+import forge from "node-forge";
 import JSZip from "jszip";
 import { getAppleWalletConfig, type AppleWalletConfig, decodeBase64Certificate, decodeBase64PrivateKey } from "./apple-config.server";
 
@@ -35,6 +37,12 @@ export type MemberLike = {
   full_name: string;
   stamps: number;
 };
+
+// Icono mínimo (29x29, PNG sólido color marca) requerido por el spec de Apple
+// Wallet — sin icon.png, Wallet rechaza el .pkpass. Se usa como fallback cuando
+// el negocio no tiene logo propio.
+const DEFAULT_ICON_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAB0AAAAdCAIAAADZ8fBYAAAAJklEQVR4nGPwd3tKC8Qwau6ouaPmjpo7au6ouaPmjpo7au6gMhcAEq3aB6dauRgAAAAASUVORK5CYII=";
 
 // Genera un serial number único para el pase (UUID-like string)
 function generateSerialNumber(): string {
@@ -186,7 +194,7 @@ async function signPass(
   try {
     // 1. Parsear P12 (contiene la clave privada + certificado)
     const p12Asn1 = forge.asn1.fromDer(certP12Buffer.toString("binary"));
-    const p12 = forge.pkcs12.asn1ToPki(p12Asn1);
+    const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, false, certPassword);
 
     // Extraer la bolsa con la clave privada y certificado
     const keyBags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag });
@@ -208,20 +216,33 @@ async function signPass(
     const wwdrCert = forge.pki.certificateFromAsn1(wwdrCertDer);
 
     // 3. Crear PKCS#7 SignedData (detached = solo firma, sin contenido)
+    // OJO: createBuffer sin encoding "utf8" trata el string como bytes 1:1
+    // (raw/latin1) — con nombres de negocio que tengan tildes/ñ, eso produce
+    // bytes distintos a los que realmente va a tener pass.json en el ZIP
+    // (JSZip sí codifica el string como UTF-8), y la firma queda inválida.
     const p7 = forge.pkcs7.createSignedData();
-    p7.content = forge.util.createBuffer(passJsonString);
+    p7.content = forge.util.createBuffer(passJsonString, "utf8");
 
     // Agregar certificados
     p7.addCertificate(cert);
     p7.addCertificate(wwdrCert);
 
-    // Firmar
-    p7.sign({
+    // IMPORTANTE: sign() no genera ningún signerInfo si no se llama antes a
+    // addSigner() — sin esto, sign() retorna en silencio (sin lanzar error)
+    // dejando el SET de signerInfos vacío, produciendo un .pkpass con una
+    // "firma" sin firmante real que Wallet rechaza.
+    p7.addSigner({
       key: privateKey,
-      cert,
-      detached: true,
-      signingTime: new Date(),
+      certificate: cert,
+      digestAlgorithm: forge.pki.oids.sha256,
+      authenticatedAttributes: [
+        { type: forge.pki.oids.contentType, value: forge.pki.oids.data },
+        { type: forge.pki.oids.messageDigest },
+        { type: forge.pki.oids.signingTime, value: new Date().toISOString() },
+      ],
     });
+
+    p7.sign({ detached: true });
 
     // 4. Convertir a DER
     const signature = forge.asn1.toDer(p7.toAsn1());
@@ -245,8 +266,14 @@ export async function generatePKPass(
 ): Promise<Buffer> {
   const zip = new JSZip();
 
+  // IMPORTANTE: debe ser EXACTAMENTE el mismo string que se firmó en
+  // signPass() (que también usa JSON.stringify sin indentar). Si el archivo
+  // dentro del ZIP no coincide byte a byte con lo firmado, el hash del
+  // manifest no matchea y Wallet rechaza el pase por firma inválida.
+  const passJsonString = JSON.stringify(passJson);
+
   // 1. Agregar pass.json
-  zip.file("pass.json", JSON.stringify(passJson, null, 2));
+  zip.file("pass.json", passJsonString);
 
   // 2. Agregar signature
   zip.file("signature", signature);
@@ -254,10 +281,9 @@ export async function generatePKPass(
   // 3. Agregar manifest.json (lista de archivos + SHA1)
   const manifest: Record<string, string> = {};
 
-  // Calcular SHA1 de pass.json
-  const passJsonBuffer = Buffer.from(JSON.stringify(passJson));
+  // Calcular SHA1 de pass.json (mismo string que se escribió arriba)
   const passJsonHash = forge.md.sha1.create();
-  passJsonHash.update(passJsonBuffer.toString("binary"));
+  passJsonHash.update(Buffer.from(passJsonString).toString("binary"));
   manifest["pass.json"] = passJsonHash.digest().toHex();
 
   // Calcular SHA1 de signature
@@ -265,7 +291,16 @@ export async function generatePKPass(
   signatureHash.update(signature.toString("binary"));
   manifest["signature"] = signatureHash.digest().toHex();
 
-  // Si hay logo, agregarlo
+  // icon.png es obligatorio para que Wallet acepte el pase. Si el negocio no
+  // tiene logo propio, usamos un ícono sólido de color marca como fallback.
+  const iconBuffer = Buffer.from(logoBase64 ?? DEFAULT_ICON_PNG_BASE64, "base64");
+  zip.file("icon.png", iconBuffer);
+  const iconHash = forge.md.sha1.create();
+  iconHash.update(iconBuffer.toString("binary"));
+  manifest["icon.png"] = iconHash.digest().toHex();
+
+  // Si hay logo del negocio, además lo agregamos como logo.png (aparece en
+  // la parte superior del pase, distinto del icon.png).
   if (logoBase64) {
     const logoBuffer = Buffer.from(logoBase64, "base64");
     zip.file("logo.png", logoBuffer);
@@ -298,6 +333,7 @@ export async function createMemberApplePass(
   serialNumber: string;
   authToken: string;
   downloadUrl: string | null;
+  pkpassBuffer: Buffer | null;
   mock: boolean;
 }> {
   const cfg = getAppleWalletConfig();
@@ -307,11 +343,12 @@ export async function createMemberApplePass(
 
   // Modo mock: simular sin generar pases reales
   if (cfg.mode === "mock") {
-    const mockUrl = `${cfg.origin}/api/passkit/v1/passes/${cfg.passTypeId}/${serialNumber}`;
+    const mockUrl = `${cfg.origin}/api/passkit/download/${serialNumber}?t=${authToken}`;
     return {
       serialNumber,
       authToken,
       downloadUrl: mockUrl,
+      pkpassBuffer: null,
       mock: true,
     };
   }
@@ -330,21 +367,20 @@ export async function createMemberApplePass(
     const passJsonString = JSON.stringify(passInstance);
     const signature = await signPass(passJsonString, certP12Buffer, cfg.certificatePassword, wwdrCertBuffer);
 
-    // 4. Generar .pkpass (ZIP)
+    // 4. Generar .pkpass (ZIP) — el llamador lo persiste (DB/storage) para
+    // poder servirlo en /api/passkit/download/:serial.
     const pkpassBuffer = await generatePKPass(passInstance, logoBase64, signature, cfg);
 
-    // 5. Generar URL descargable (en producción, esto guardaría en S3/R2)
-    // Por ahora, retornamos una URL simulada que el cliente puede usar
-    // En realidad, necesitarías:
-    // - Guardar pkpassBuffer en R2 o similar
-    // - Retornar una URL de descarga
-    // Para dev, retornamos la URL del PassKit web service
-    const downloadUrl = `${cfg.origin}/api/passkit/v1/passes/${cfg.passTypeId}/${serialNumber}`;
+    // 5. URL de descarga pública (sin auth header especial de Apple — la
+    // usan el navegador/Wallet la primera vez). El token en query es una
+    // protección mínima contra adivinar el serial.
+    const downloadUrl = `${cfg.origin}/api/passkit/download/${serialNumber}?t=${authToken}`;
 
     return {
       serialNumber,
       authToken,
       downloadUrl,
+      pkpassBuffer,
       mock: false,
     };
   } catch (error) {
