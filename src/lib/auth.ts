@@ -22,7 +22,15 @@ export async function signIn(email: string, password: string) {
 }
 
 export async function signUp(email: string, password: string) {
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  // Sin emailRedirectTo, Supabase usa el "Site URL" configurado en el
+  // dashboard del proyecto (Authentication → URL Configuration) para el link
+  // del correo de confirmación — si ese Site URL quedó en localhost (default),
+  // el link manda ahí sin importar desde dónde se registró el usuario. Con
+  // esto, el link vuelve al origen real (local o producción), IGUAL que
+  // requestPasswordReset — pero el origen también debe estar en la lista de
+  // "Redirect URLs" del dashboard o Supabase lo rechaza.
+  const emailRedirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
+  const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo } });
   if (error) throw new Error(error.message);
   // Si el proyecto exige confirmación por email, no habrá sesión todavía.
   return { needsConfirmation: !data.session };

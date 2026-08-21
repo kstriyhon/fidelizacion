@@ -575,7 +575,7 @@ export function Dashboard({
                 <Stamp className="h-4 w-4 text-primary" /> Inscribe clientes
               </h3>
               <p className="mt-1 text-xs text-muted-foreground">
-                Que escaneen este QR o abran el enlace para agregar la tarjeta a Google Wallet.
+                Que escaneen este QR o abran el enlace para agregar la tarjeta a Google Wallet o Apple Wallet.
               </p>
               {enrollUrl ? (
                 <div className="mt-3 grid place-items-center rounded-lg bg-white p-3">
