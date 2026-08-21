@@ -43,7 +43,7 @@ create table if not exists public.gym_attendance (
 );
 create index if not exists gym_attendance_member_idx on public.gym_attendance(member_id);
 create index if not exists gym_attendance_timestamp_idx on public.gym_attendance(timestamp_at);
-create index if not exists gym_attendance_member_date_idx on public.gym_attendance(member_id, date(timestamp_at));
+create index if not exists gym_attendance_member_date_idx on public.gym_attendance(member_id, ((timestamp_at at time zone 'utc')::date));
 
 -- ---------------------------------------------------------------------------
 -- Sistema de referidos (recompensas por traer amigos)
