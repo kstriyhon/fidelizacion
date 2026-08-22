@@ -313,15 +313,20 @@ async function signPass(
     // addSigner() — sin esto, sign() retorna en silencio (sin lanzar error)
     // dejando el SET de signerInfos vacío, produciendo un .pkpass con una
     // "firma" sin firmante real que Wallet rechaza.
+    //
+    // Sin `authenticatedAttributes`: la firma se computa directo sobre el
+    // digest del contenido, sin el SET DER de atributos (contentType +
+    // messageDigest + signingTime) de por medio. Con esos atributos, un
+    // iPhone real rechazaba el pase con "Message-digest attribute failed to
+    // verify" / "signature verification failed for signer 0" — el digest
+    // embebido en el atributo SÍ coincidía byte a byte con el pass.json real
+    // (verificado a mano con openssl dgst + asn1parse), pero la verificación
+    // estricta de Wallet fallaba igual. Evitamos todo ese SET de atributos:
+    // menos superficie para un bug de codificación DER en node-forge.
     p7.addSigner({
       key: privateKey,
       certificate: cert,
       digestAlgorithm: forge.pki.oids.sha256,
-      authenticatedAttributes: [
-        { type: forge.pki.oids.contentType, value: forge.pki.oids.data },
-        { type: forge.pki.oids.messageDigest },
-        { type: forge.pki.oids.signingTime, value: new Date().toISOString() },
-      ],
     });
 
     p7.sign({ detached: true });
