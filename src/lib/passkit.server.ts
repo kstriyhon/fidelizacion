@@ -117,28 +117,66 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
     return new Response(new Uint8Array(bytes), { status: 200, headers });
   }
 
-  // /api/passkit/v1/passes/{passType}/{serialNumber}[/devices/{deviceId}]
-  if (parts[2] === "v1" && parts[3] === "passes" && parts[4] && parts[5]) {
-    const passType = parts[4];
-    const serialNumber = parts[5];
-    const isDeviceRoute = parts[6] === "devices" && parts[7];
-    const deviceId = parts[7];
+  // --- Registro de dispositivo -------------------------------------------
+  // POST/DELETE /v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeId}/{serialNumber}
+  // GET         /v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeId}[?passesUpdatedSince=]
+  //
+  // OJO: esta es la forma REAL del spec de Apple. Antes el handler esperaba
+  // /v1/passes/{passType}/{serial}/devices/{deviceId} (invertido) y por eso
+  // Wallet recibía 404 al intentar registrar el dispositivo — se veía en los
+  // logs del Worker con un iPhone real.
+  if (parts[2] === "v1" && parts[3] === "devices" && parts[4] && parts[5] === "registrations" && parts[6]) {
+    const deviceId = decodeURIComponent(parts[4]);
+    const passType = decodeURIComponent(parts[6]);
+    const serialNumber = parts[7] ? decodeURIComponent(parts[7]) : null;
 
     const authToken = extractAuthToken(request.headers.get("authorization"));
+
+    // GET sin serial: lista de seriales de este dispositivo (Wallet lo usa
+    // para sincronizar). No lleva Authorization por pase.
+    if (request.method === "GET" && !serialNumber) {
+      const { data: regs } = await db
+        .from("loyalty_device_registrations")
+        .select("member_id")
+        .eq("device_library_identifier", deviceId);
+
+      const memberIds = (regs ?? []).map((r) => r.member_id as string);
+      if (memberIds.length === 0) return new Response(null, { status: 204 });
+
+      const { data: passes } = await db
+        .from("loyalty_apple_passes")
+        .select("serial_number, updated_at")
+        .eq("pass_type_id", passType)
+        .in("member_id", memberIds);
+
+      const serials = (passes ?? []).map((p) => p.serial_number as string);
+      if (serials.length === 0) return new Response(null, { status: 204 });
+
+      const lastUpdated = (passes ?? [])
+        .map((p) => String(p.updated_at ?? ""))
+        .sort()
+        .pop();
+
+      return json({ serialNumbers: serials, lastUpdated: lastUpdated ?? new Date().toISOString() }, 200);
+    }
+
+    if (!serialNumber) return json({ error: "Not found" }, 404);
     if (!authToken) return json({ error: "Unauthorized" }, 401);
 
-    const { data: applePass, error } = await db
+    const { data: passRows } = await db
       .from("loyalty_apple_passes")
-      .select("id, member_id, auth_token, signature")
+      .select("member_id, auth_token")
       .eq("pass_type_id", passType)
       .eq("serial_number", serialNumber)
-      .single();
+      .limit(1);
 
-    if (error || !applePass || applePass.auth_token !== authToken) {
+    const applePass = passRows?.[0];
+    if (!applePass || applePass.auth_token !== authToken) {
+      console.log(JSON.stringify({ at: "passkit-device-auth-fail", serialNumber, found: Boolean(applePass) }));
       return json({ error: "Unauthorized" }, 401);
     }
 
-    if (isDeviceRoute && request.method === "POST") {
+    if (request.method === "POST") {
       let pushToken = "";
       try {
         const body = (await request.json()) as { pushToken?: string };
@@ -158,11 +196,15 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
         { onConflict: "member_id,device_library_identifier" },
       );
 
-      if (upsertError) return json({ error: "Failed to register device" }, 500);
+      if (upsertError) {
+        console.log(JSON.stringify({ at: "passkit-register-fail", error: upsertError.message }));
+        return json({ error: "Failed to register device" }, 500);
+      }
+      console.log(JSON.stringify({ at: "passkit-register-ok", serialNumber, hasPushToken: Boolean(pushToken) }));
       return json({ success: true }, 201);
     }
 
-    if (isDeviceRoute && request.method === "DELETE") {
+    if (request.method === "DELETE") {
       const { error: deleteError } = await db
         .from("loyalty_device_registrations")
         .delete()
@@ -170,21 +212,42 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
         .eq("device_library_identifier", deviceId);
 
       if (deleteError) return json({ error: "Failed to delete device" }, 500);
-      return new Response(null, { status: 204 });
+      return new Response(null, { status: 200 });
+    }
+  }
+
+  // --- Última versión del pase -------------------------------------------
+  // GET /v1/passes/{passTypeId}/{serialNumber}
+  if (parts[2] === "v1" && parts[3] === "passes" && parts[4] && parts[5] && request.method === "GET") {
+    const passType = decodeURIComponent(parts[4]);
+    const serialNumber = decodeURIComponent(parts[5]);
+
+    const authToken = extractAuthToken(request.headers.get("authorization"));
+    if (!authToken) return json({ error: "Unauthorized" }, 401);
+
+    const { data: passRows } = await db
+      .from("loyalty_apple_passes")
+      .select("auth_token, signature")
+      .eq("pass_type_id", passType)
+      .eq("serial_number", serialNumber)
+      .limit(1);
+
+    const applePass = passRows?.[0];
+    if (!applePass || applePass.auth_token !== authToken) {
+      return json({ error: "Unauthorized" }, 401);
     }
 
-    if (!isDeviceRoute && request.method === "GET") {
-      const bytes = decodeBytea(applePass.signature);
-      if (!bytes || bytes.length === 0) return json({ error: "Pass not available" }, 404);
-      return new Response(new Uint8Array(bytes), {
-        status: 200,
-        headers: {
-          "content-type": "application/vnd.apple.pkpass",
-          "content-disposition": `inline; filename="pass.pkpass"`,
-          "cache-control": "no-store",
-        },
-      });
-    }
+    const bytes = decodeBytea(applePass.signature);
+    if (!bytes || bytes.length === 0) return json({ error: "Pass not available" }, 404);
+    return new Response(new Uint8Array(bytes), {
+      status: 200,
+      headers: {
+        "content-type": "application/vnd.apple.pkpass",
+        "content-disposition": `inline; filename="pass.pkpass"`,
+        "content-length": String(bytes.length),
+        "cache-control": "no-store",
+      },
+    });
   }
 
   // GET /api/passkit/v1/log
