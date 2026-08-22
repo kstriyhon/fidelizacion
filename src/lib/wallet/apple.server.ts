@@ -314,19 +314,28 @@ async function signPass(
     // dejando el SET de signerInfos vacío, produciendo un .pkpass con una
     // "firma" sin firmante real que Wallet rechaza.
     //
-    // Sin `authenticatedAttributes`: la firma se computa directo sobre el
-    // digest del contenido, sin el SET DER de atributos (contentType +
-    // messageDigest + signingTime) de por medio. Con esos atributos, un
-    // iPhone real rechazaba el pase con "Message-digest attribute failed to
-    // verify" / "signature verification failed for signer 0" — el digest
-    // embebido en el atributo SÍ coincidía byte a byte con el pass.json real
-    // (verificado a mano con openssl dgst + asn1parse), pero la verificación
-    // estricta de Wallet fallaba igual. Evitamos todo ese SET de atributos:
-    // menos superficie para un bug de codificación DER en node-forge.
+    // Apple SÍ requiere authenticatedAttributes en la práctica (quitarlos
+    // produce "RSA signature verification failed, no match" — un fallo más
+    // genérico, probado en un iPhone real). El bug real era el ORDEN: DER
+    // exige que un SET OF esté en orden canónico — comparando los bytes
+    // codificados completos de cada elemento, NO el valor del OID. node-forge
+    // NO ordena esto solo; codifica los atributos en el orden que se le pasan.
+    // El orden "obvio" (contentType, messageDigest, signingTime) NO es el
+    // canónico: al codificar cada atributo como DER y comparar sus bytes,
+    // sale messageDigest(17 bytes) < contentType(26 bytes) < signingTime(30
+    // bytes) — confirmado programáticamente. openssl es permisivo con SET OF
+    // fuera de orden; el validador estricto de Apple no, y rechazaba el pase
+    // con "Message-digest attribute failed to verify" pese a que el digest
+    // embebido coincidía byte a byte con el pass.json real.
     p7.addSigner({
       key: privateKey,
       certificate: cert,
       digestAlgorithm: forge.pki.oids.sha256,
+      authenticatedAttributes: [
+        { type: forge.pki.oids.messageDigest },
+        { type: forge.pki.oids.contentType, value: forge.pki.oids.data },
+        { type: forge.pki.oids.signingTime, value: new Date().toISOString() },
+      ],
     });
 
     p7.sign({ detached: true });
