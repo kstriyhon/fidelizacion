@@ -97,6 +97,14 @@ interface PassTemplate {
     message: string;
     messageEncoding: string;
   };
+  // "barcodes" (plural, array) es la forma moderna desde iOS 9 — "barcode"
+  // (singular) sigue soportado mostrando el primer elemento de "barcodes"
+  // pero es legacy. Mandamos ambos por compatibilidad máxima.
+  barcodes: Array<{
+    format: string;
+    message: string;
+    messageEncoding: string;
+  }>;
   locations?: Array<{
     latitude: number;
     longitude: number;
@@ -148,6 +156,13 @@ export function buildPassTemplate(
       message: "", // Se llena en buildPassInstance (member.id)
       messageEncoding: "iso-8859-1",
     },
+    barcodes: [
+      {
+        format: "PKBarcodeFormatQR",
+        message: "", // Se llena en buildPassInstance (member.id)
+        messageEncoding: "iso-8859-1",
+      },
+    ],
     ...(business.latitude != null && business.longitude != null
       ? {
           locations: [
@@ -196,6 +211,12 @@ export function buildPassInstance(
       ...template.barcode,
       message: member.id, // QR con el ID del cliente
     },
+    barcodes: [
+      {
+        ...template.barcodes[0],
+        message: member.id,
+      },
+    ],
     storeCard: {
       primaryFields: [
         {
