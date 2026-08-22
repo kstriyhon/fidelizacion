@@ -46,3 +46,4 @@ google-*.json
 *.sln
 *.sw?
 apple/*.mp4
+apple/*.pkpass
