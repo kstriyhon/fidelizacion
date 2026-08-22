@@ -21,7 +21,10 @@ import { getSupabaseAdmin } from "./supabaseAdmin.server";
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json" },
+    // Sin esto, un 404 temprano (ej. tocar el pase antes de que el insert
+    // termine de propagarse) puede quedar cacheado por el navegador/OS y
+    // servirse de nuevo en el reintento, aunque el servidor ya responda bien.
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
 }
 
@@ -71,6 +74,7 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
       "content-disposition": `inline; filename="pass.pkpass"`,
       "content-length": String(bytes.length),
       "accept-ranges": "bytes",
+      "cache-control": "no-store",
     };
 
     if (request.method === "HEAD") {
@@ -144,6 +148,7 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
         headers: {
           "content-type": "application/vnd.apple.pkpass",
           "content-disposition": `inline; filename="pass.pkpass"`,
+          "cache-control": "no-store",
         },
       });
     }
