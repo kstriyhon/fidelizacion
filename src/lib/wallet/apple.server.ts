@@ -357,58 +357,54 @@ async function signPass(
 export async function generatePKPass(
   passJson: PassInstance,
   logoBase64: string | null,
-  signature: Buffer,
   cfg: Extract<AppleWalletConfig, { mode: "live" }>
 ): Promise<Buffer> {
-  const zip = new JSZip();
+  // Estructura de un .pkpass según el spec de Apple:
+  //   1. Los archivos del bundle: pass.json, icon.png, [logo.png], ...
+  //   2. manifest.json = { "<archivo>": "<sha1 hex>" } de TODOS esos archivos.
+  //      NO se incluye a sí mismo ni a "signature".
+  //   3. signature = firma PKCS#7 DETACHED de **manifest.json** (NO de
+  //      pass.json). Wallet verifica la firma contra manifest.json, y luego
+  //      que cada hash del manifest coincida con el archivo real.
+  //
+  // Firmar pass.json en vez de manifest.json (y meter "signature" dentro del
+  // manifest) es lo que producía en un iPhone real:
+  //   "Manifest signature did not verify successfully".
+  // Verificar la firma con openssl contra pass.json daba "Verification
+  // successful" — pero era circular: confirmaba que firmamos lo que firmamos,
+  // no que fuera el archivo correcto según el spec.
+  const files: Record<string, Buffer> = {
+    "pass.json": Buffer.from(JSON.stringify(passJson), "utf8"),
+    // icon.png es obligatorio o Wallet rechaza el pase. Si el negocio no tiene
+    // logo propio, se usa un ícono sólido del color de marca como fallback.
+    "icon.png": Buffer.from(logoBase64 ?? DEFAULT_ICON_PNG_BASE64, "base64"),
+  };
 
-  // IMPORTANTE: debe ser EXACTAMENTE el mismo string que se firmó en
-  // signPass() (que también usa JSON.stringify sin indentar). Si el archivo
-  // dentro del ZIP no coincide byte a byte con lo firmado, el hash del
-  // manifest no matchea y Wallet rechaza el pase por firma inválida.
-  const passJsonString = JSON.stringify(passJson);
-
-  // 1. Agregar pass.json
-  zip.file("pass.json", passJsonString);
-
-  // 2. Agregar signature
-  zip.file("signature", signature);
-
-  // 3. Agregar manifest.json (lista de archivos + SHA1)
-  const manifest: Record<string, string> = {};
-
-  // Calcular SHA1 de pass.json (mismo string que se escribió arriba)
-  const passJsonHash = forge.md.sha1.create();
-  passJsonHash.update(Buffer.from(passJsonString).toString("binary"));
-  manifest["pass.json"] = passJsonHash.digest().toHex();
-
-  // Calcular SHA1 de signature
-  const signatureHash = forge.md.sha1.create();
-  signatureHash.update(signature.toString("binary"));
-  manifest["signature"] = signatureHash.digest().toHex();
-
-  // icon.png es obligatorio para que Wallet acepte el pase. Si el negocio no
-  // tiene logo propio, usamos un ícono sólido de color marca como fallback.
-  const iconBuffer = Buffer.from(logoBase64 ?? DEFAULT_ICON_PNG_BASE64, "base64");
-  zip.file("icon.png", iconBuffer);
-  const iconHash = forge.md.sha1.create();
-  iconHash.update(iconBuffer.toString("binary"));
-  manifest["icon.png"] = iconHash.digest().toHex();
-
-  // Si hay logo del negocio, además lo agregamos como logo.png (aparece en
-  // la parte superior del pase, distinto del icon.png).
+  // Si hay logo del negocio, además va como logo.png (aparece arriba en el
+  // pase, es distinto del icon.png).
   if (logoBase64) {
-    const logoBuffer = Buffer.from(logoBase64, "base64");
-    zip.file("logo.png", logoBuffer);
-
-    const logoHash = forge.md.sha1.create();
-    logoHash.update(logoBuffer.toString("binary"));
-    manifest["logo.png"] = logoHash.digest().toHex();
+    files["logo.png"] = Buffer.from(logoBase64, "base64");
   }
 
-  zip.file("manifest.json", JSON.stringify(manifest));
+  const manifest: Record<string, string> = {};
+  for (const [name, buf] of Object.entries(files)) {
+    const md = forge.md.sha1.create();
+    md.update(buf.toString("binary"));
+    manifest[name] = md.digest().toHex();
+  }
+  const manifestString = JSON.stringify(manifest);
 
-  // 4. Generar ZIP
+  const certP12Buffer = decodeBase64Certificate(cfg.certificateP12Base64);
+  const wwdrCertBuffer = decodeBase64Certificate(cfg.wwdrCertificateBase64);
+  const signature = await signPass(manifestString, certP12Buffer, cfg.certificatePassword, wwdrCertBuffer);
+
+  const zip = new JSZip();
+  for (const [name, buf] of Object.entries(files)) {
+    zip.file(name, buf);
+  }
+  zip.file("manifest.json", manifestString);
+  zip.file("signature", signature);
+
   const pkpassBuffer = await zip.generateAsync({ type: "nodebuffer" });
 
   return pkpassBuffer;
@@ -455,19 +451,12 @@ export async function createMemberApplePass(
     const template = buildPassTemplate(cfg, program, business, authToken);
     const passInstance = buildPassInstance(template, member, program, serialNumber);
 
-    // 2. Decodificar certificados desde base64
-    const certP12Buffer = decodeBase64Certificate(cfg.certificateP12Base64);
-    const wwdrCertBuffer = decodeBase64Certificate(cfg.wwdrCertificateBase64);
-
-    // 3. Firmar pass.json
-    const passJsonString = JSON.stringify(passInstance);
-    const signature = await signPass(passJsonString, certP12Buffer, cfg.certificatePassword, wwdrCertBuffer);
-
-    // 4. Generar .pkpass (ZIP) — el llamador lo persiste (DB/storage) para
+    // 2. Generar .pkpass (ZIP). generatePKPass arma el manifest y firma
+    // manifest.json internamente. El llamador lo persiste (DB/storage) para
     // poder servirlo en /api/passkit/download/:serial.
-    const pkpassBuffer = await generatePKPass(passInstance, logoBase64, signature, cfg);
+    const pkpassBuffer = await generatePKPass(passInstance, logoBase64, cfg);
 
-    // 5. URL de descarga pública (sin auth header especial de Apple — la
+    // 3. URL de descarga pública (sin auth header especial de Apple — la
     // usan el navegador/Wallet la primera vez). El token en query es una
     // protección mínima contra adivinar el serial.
     const downloadUrl = `${cfg.origin}/api/passkit/download/${serialNumber}?t=${authToken}`;
@@ -514,12 +503,7 @@ export async function regenerateApplePassBuffer(
     const template = buildPassTemplate(cfg, program, business, authToken);
     const passInstance = buildPassInstance(template, member, program, serialNumber, opts);
 
-    const certP12Buffer = decodeBase64Certificate(cfg.certificateP12Base64);
-    const wwdrCertBuffer = decodeBase64Certificate(cfg.wwdrCertificateBase64);
-
-    const passJsonString = JSON.stringify(passInstance);
-    const signature = await signPass(passJsonString, certP12Buffer, cfg.certificatePassword, wwdrCertBuffer);
-    const pkpassBuffer = await generatePKPass(passInstance, logoBase64, signature, cfg);
+    const pkpassBuffer = await generatePKPass(passInstance, logoBase64, cfg);
 
     return { pkpassBuffer, mock: false };
   } catch (error) {

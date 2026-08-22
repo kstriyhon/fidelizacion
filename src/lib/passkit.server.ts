@@ -51,18 +51,51 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
   // si eso da 404 (por no matchear method==="GET"), Wallet se rinde y nunca
   // llega a pedir el GET real, aunque el link en sí sea válido.
   if ((request.method === "GET" || request.method === "HEAD") && parts[2] === "download" && parts[3]) {
-    const serial = parts[3];
+    const serial = decodeURIComponent(parts[3]);
     const token = url.searchParams.get("t");
+
+    // Diagnóstico temporal: el teléfono recibía 404 mientras curl recibía 200
+    // para el MISMO serial. Loguear lo que realmente llega para dejar de
+    // adivinar (wrangler tail muestra "Ok" también en respuestas 404, así que
+    // el log de invocación por sí solo no distingue).
+    console.log(
+      JSON.stringify({
+        at: "passkit-download",
+        method: request.method,
+        rawPath: url.pathname,
+        serial,
+        serialLen: serial.length,
+        tokenPresent: Boolean(token),
+        tokenLen: token?.length ?? 0,
+        ua: request.headers.get("user-agent")?.slice(0, 80) ?? null,
+      }),
+    );
+
     if (!token) return json({ error: "Missing token" }, 401);
 
-    const { data: applePass, error } = await db
+    const { data: rows, error } = await db
       .from("loyalty_apple_passes")
       .select("signature, auth_token")
       .eq("serial_number", serial)
-      .single();
+      .limit(1);
 
-    if (error || !applePass) return json({ error: "Pass not found" }, 404);
-    if (applePass.auth_token !== token) return json({ error: "Unauthorized" }, 401);
+    const applePass = rows?.[0];
+
+    if (error || !applePass) {
+      console.log(
+        JSON.stringify({
+          at: "passkit-download-notfound",
+          serial,
+          dbError: error?.message ?? null,
+          rowCount: rows?.length ?? 0,
+        }),
+      );
+      return json({ error: "Pass not found" }, 404);
+    }
+    if (applePass.auth_token !== token) {
+      console.log(JSON.stringify({ at: "passkit-download-badtoken", serial }));
+      return json({ error: "Unauthorized" }, 401);
+    }
 
     const bytes = decodeBytea(applePass.signature);
     if (!bytes || bytes.length === 0) {
