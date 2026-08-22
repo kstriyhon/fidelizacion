@@ -42,8 +42,12 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
   const parts = url.pathname.split("/").filter(Boolean); // ["api","passkit", ...]
   const db = getSupabaseAdmin();
 
-  // GET /api/passkit/download/:serial?t=authToken
-  if (request.method === "GET" && parts[2] === "download" && parts[3]) {
+  // GET/HEAD /api/passkit/download/:serial?t=authToken
+  // HEAD importa de verdad: Wallet (a diferencia de un tap normal en Safari)
+  // suele mandar un HEAD primero para chequear el recurso antes de bajarlo —
+  // si eso da 404 (por no matchear method==="GET"), Wallet se rinde y nunca
+  // llega a pedir el GET real, aunque el link en sí sea válido.
+  if ((request.method === "GET" || request.method === "HEAD") && parts[2] === "download" && parts[3]) {
     const serial = parts[3];
     const token = url.searchParams.get("t");
     if (!token) return json({ error: "Missing token" }, 401);
@@ -62,13 +66,18 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
       return json({ error: "Pass not available (mock mode or not yet generated)" }, 404);
     }
 
-    return new Response(new Uint8Array(bytes), {
-      status: 200,
-      headers: {
-        "content-type": "application/vnd.apple.pkpass",
-        "content-disposition": `inline; filename="pass.pkpass"`,
-      },
-    });
+    const headers = {
+      "content-type": "application/vnd.apple.pkpass",
+      "content-disposition": `inline; filename="pass.pkpass"`,
+      "content-length": String(bytes.length),
+      "accept-ranges": "bytes",
+    };
+
+    if (request.method === "HEAD") {
+      return new Response(null, { status: 200, headers });
+    }
+
+    return new Response(new Uint8Array(bytes), { status: 200, headers });
   }
 
   // /api/passkit/v1/passes/{passType}/{serialNumber}[/devices/{deviceId}]
