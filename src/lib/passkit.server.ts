@@ -54,22 +54,6 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
     const serial = decodeURIComponent(parts[3]);
     const token = url.searchParams.get("t");
 
-    // Diagnóstico temporal: el teléfono recibía 404 mientras curl recibía 200
-    // para el MISMO serial. Loguear lo que realmente llega para dejar de
-    // adivinar (wrangler tail muestra "Ok" también en respuestas 404, así que
-    // el log de invocación por sí solo no distingue).
-    console.log(
-      JSON.stringify({
-        at: "passkit-download",
-        method: request.method,
-        rawPath: url.pathname,
-        serial,
-        serialLen: serial.length,
-        tokenPresent: Boolean(token),
-        tokenLen: token?.length ?? 0,
-        ua: request.headers.get("user-agent")?.slice(0, 80) ?? null,
-      }),
-    );
 
     if (!token) return json({ error: "Missing token" }, 401);
 
@@ -82,18 +66,9 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
     const applePass = rows?.[0];
 
     if (error || !applePass) {
-      console.log(
-        JSON.stringify({
-          at: "passkit-download-notfound",
-          serial,
-          dbError: error?.message ?? null,
-          rowCount: rows?.length ?? 0,
-        }),
-      );
       return json({ error: "Pass not found" }, 404);
     }
     if (applePass.auth_token !== token) {
-      console.log(JSON.stringify({ at: "passkit-download-badtoken", serial }));
       return json({ error: "Unauthorized" }, 401);
     }
 
@@ -172,7 +147,6 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
 
     const applePass = passRows?.[0];
     if (!applePass || applePass.auth_token !== authToken) {
-      console.log(JSON.stringify({ at: "passkit-device-auth-fail", serialNumber, found: Boolean(applePass) }));
       return json({ error: "Unauthorized" }, 401);
     }
 
@@ -197,10 +171,8 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
       );
 
       if (upsertError) {
-        console.log(JSON.stringify({ at: "passkit-register-fail", error: upsertError.message }));
         return json({ error: "Failed to register device" }, 500);
       }
-      console.log(JSON.stringify({ at: "passkit-register-ok", serialNumber, hasPushToken: Boolean(pushToken) }));
       return json({ success: true }, 201);
     }
 
@@ -253,8 +225,7 @@ export async function handlePassKitRequest(request: Request): Promise<Response> 
   // GET /api/passkit/v1/log
   if (parts[2] === "v1" && parts[3] === "log") {
     try {
-      const logs = await request.json();
-      console.log("Apple Wallet client error logs:", logs);
+      await request.json();
     } catch {
       // ignorar body inválido
     }
