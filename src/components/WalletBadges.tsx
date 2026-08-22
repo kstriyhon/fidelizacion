@@ -61,7 +61,7 @@ function WalletBadge({
   }
 
   return (
-    <a href={href} target={variant === "google" ? "_blank" : undefined} rel="noreferrer" className="block w-full">
+    <a href={href} target="_blank" rel="noreferrer" className="block w-full">
       {content}
     </a>
   );
