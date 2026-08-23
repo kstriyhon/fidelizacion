@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Stamp, ArrowLeft, MailCheck } from "lucide-react";
+import { Stamp, ArrowLeft, MailCheck, Eye, EyeOff } from "lucide-react";
 
 import { signIn, signUp, requestPasswordReset } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   function switchTo(next: Mode) {
     setMode(next);
@@ -150,13 +151,23 @@ function LoginPage() {
                         </button>
                       )}
                     </div>
-                    <Input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      autoComplete={mode === "in" ? "current-password" : "new-password"}
-                    />
+                    <div className="relative">
+                      <Input
+                        type={showPassword ? "text" : "password"}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="••••••••"
+                        autoComplete={mode === "in" ? "current-password" : "new-password"}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        title={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
                 )}
 
