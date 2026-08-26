@@ -20,22 +20,22 @@ export const Route = createFileRoute("/unirse/$slug")({
       .eq("slug", params.slug)
       .maybeSingle();
     if (!business) throw notFound();
-    const { data: program } = await supabase
+    const { data: programs } = await supabase
       .from("loyalty_programs")
       .select("*")
       .eq("business_id", business.id)
       .eq("active", true)
-      .order("created_at")
-      .limit(1)
-      .maybeSingle();
-    if (!program) throw notFound();
-    return { business: business as Business, program: program as Program };
+      .order("created_at");
+    if (!programs || programs.length === 0) throw notFound();
+    return { business: business as Business, programs: programs as Program[] };
   },
   component: JoinPage,
 });
 
 function JoinPage() {
-  const { business, program } = Route.useLoaderData();
+  const { business, programs } = Route.useLoaderData();
+  const [selectedProgramIndex, setSelectedProgramIndex] = useState(0);
+  const program = programs[selectedProgramIndex];
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
@@ -66,6 +66,23 @@ function JoinPage() {
   return (
     <div className="min-h-screen bg-muted/30 px-6 py-10">
       <div className="mx-auto max-w-md">
+        {programs.length > 1 ? (
+          <div className="mb-6 flex flex-wrap gap-2 justify-center">
+            {programs.map((p, idx) => (
+              <button
+                key={p.id}
+                onClick={() => setSelectedProgramIndex(idx)}
+                className={`px-3 py-1 text-xs rounded-full font-medium transition ${
+                  selectedProgramIndex === idx
+                    ? "bg-primary text-white"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="mb-6 flex justify-center">
           <LoyaltyCard
             businessName={business.name}

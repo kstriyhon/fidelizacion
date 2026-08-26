@@ -143,25 +143,26 @@ export const getMyDashboardFn = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!business) return { business: null, program: null, members: [] as Member[] };
 
-    const { data: program } = await db
+    const { data: programs } = await db
       .from("loyalty_programs")
       .select("*")
       .eq("business_id", business.id)
-      .order("created_at")
-      .limit(1)
-      .maybeSingle();
+      .order("created_at");
+
     let members: Member[] = [];
-    if (program) {
+    if (programs && programs.length > 0) {
+      const programIds = programs.map((p) => p.id);
       const { data: mem } = await db
         .from("loyalty_members")
         .select("*")
-        .eq("program_id", program.id)
+        .in("program_id", programIds)
         .order("enrolled_at", { ascending: false });
       members = (mem as Member[]) ?? [];
     }
+
     return {
       business: business as Business,
-      program: (program as Program) ?? null,
+      programs: (programs as Program[]) ?? [],
       members,
     };
   });

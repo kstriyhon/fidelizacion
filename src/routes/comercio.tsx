@@ -68,7 +68,8 @@ function ComercioPanel() {
   const session = useSession();
   const navigate = useNavigate();
   const [business, setBusiness] = useState<Business | null>(null);
-  const [program, setProgram] = useState<Program | null>(null);
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -86,8 +87,11 @@ function ComercioPanel() {
       if (!token) return;
       const res = await getMyDashboardFn({ data: { token } });
       setBusiness(res.business);
-      setProgram(res.program);
+      setPrograms(res.programs);
       setMembers(res.members);
+      if (res.programs.length > 0) {
+        setSelectedProgramId(res.programs[0].id);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error");
     } finally {
@@ -113,7 +117,9 @@ function ComercioPanel() {
   return (
     <Dashboard
       business={business}
-      program={program}
+      programs={programs}
+      selectedProgramId={selectedProgramId}
+      onSelectProgram={setSelectedProgramId}
       members={members}
       email={email}
       reload={load}
@@ -241,14 +247,18 @@ export function Onboarding({ email, onCreated }: { email: string; onCreated: () 
 // ---------------------------------------------------------------------------
 export function Dashboard({
   business,
-  program,
+  programs,
+  selectedProgramId,
+  onSelectProgram,
   members,
   email,
   reload,
   onBack,
 }: {
   business: Business;
-  program: Program | null;
+  programs: Program[];
+  selectedProgramId: string | null;
+  onSelectProgram: (programId: string) => void;
   members: Member[];
   email: string;
   reload: () => void;
@@ -265,10 +275,14 @@ export function Dashboard({
   const [memberFilter, setMemberFilter] = useState<"all" | "new" | "inactive">("all");
   const [search, setSearch] = useState("");
 
-  const required = program?.stamps_required ?? 1;
-  const metrics = computeMetrics(members, () => required, { inactiveDays });
+  const selectedProgram = programs.find((p) => p.id === selectedProgramId) ?? programs[0] ?? null;
+  const required = selectedProgram?.stamps_required ?? 1;
+
+  const programMembers = selectedProgram ? members.filter((m) => m.program_id === selectedProgram.id) : [];
+  const metrics = computeMetrics(programMembers, () => required, { inactiveDays });
+
   const q = search.trim().toLowerCase();
-  const shownMembers = members.filter((m) => {
+  const shownMembers = programMembers.filter((m) => {
     if (memberFilter === "new" && !isNewMember(m)) return false;
     if (memberFilter === "inactive" && !isInactiveMember(m, inactiveDays)) return false;
     if (q && !`${m.full_name} ${m.phone ?? ""} ${m.email ?? ""}`.toLowerCase().includes(q)) {
@@ -345,10 +359,27 @@ export function Dashboard({
             </div>
             <div>
               <h1 className="text-xl font-bold">{business.name}</h1>
-              <p className="text-xs text-muted-foreground">
-                {program ? `${program.name} · ${program.stamps_required} sellos = ${program.reward_description}` : "Sin programa"}
+              {programs.length > 1 ? (
+                <div className="mt-2 flex gap-2">
+                  {programs.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => onSelectProgram(p.id)}
+                      className={`px-3 py-1 text-xs rounded-full font-medium transition ${
+                        selectedProgramId === p.id
+                          ? "bg-primary text-white"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      }`}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <p className="text-xs text-muted-foreground mt-1">
+                {selectedProgram ? `${selectedProgram.name} · ${selectedProgram.stamps_required} sellos = ${selectedProgram.reward_description}` : "Sin programa"}
               </p>
-              {program ? (
+              {selectedProgram ? (
                 <button
                   type="button"
                   onClick={() => setProgramEditOpen(true)}
@@ -400,7 +431,7 @@ export function Dashboard({
                 <Button
                   size="sm"
                   className="gap-1"
-                  disabled={!program}
+                  disabled={!selectedProgram}
                   onClick={() => setScanOpen(true)}
                 >
                   <ScanLine className="h-4 w-4" />
@@ -410,7 +441,7 @@ export function Dashboard({
                   size="sm"
                   variant="outline"
                   className="gap-1"
-                  disabled={!program || members.length === 0}
+                  disabled={!selectedProgram || programMembers.length === 0}
                   onClick={() => setBroadcastOpen(true)}
                 >
                   <Megaphone className="h-4 w-4" />
@@ -606,9 +637,9 @@ export function Dashboard({
 
             <LocationEditor business={business} reload={reload} />
 
-            {program ? <WelcomeMessageEditor program={program} reload={reload} /> : null}
+            {selectedProgram ? <WelcomeMessageEditor program={selectedProgram} reload={reload} /> : null}
 
-            {program ? <StampMessageEditor program={program} reload={reload} /> : null}
+            {selectedProgram ? <StampMessageEditor program={selectedProgram} reload={reload} /> : null}
           </aside>
         </div>
       </div>
@@ -619,19 +650,21 @@ export function Dashboard({
         onClose={() => setMsgMember(null)}
       />
       {program ? (
-        <BroadcastDialog
-          program={program}
-          memberCount={members.length}
-          open={broadcastOpen}
-          onClose={() => setBroadcastOpen(false)}
-        />
+        {selectedProgram ? (
+          <BroadcastDialog
+            program={selectedProgram}
+            memberCount={programMembers.length}
+            open={broadcastOpen}
+            onClose={() => setBroadcastOpen(false)}
+          />
+        ) : null}
       ) : null}
       <ScanDialog open={scanOpen} onClose={() => setScanOpen(false)} onDetect={handleScan} />
       <MemberEditDialog member={editMember} onClose={() => setEditMember(null)} reload={reload} />
       <MemberDeleteDialog member={delMember} onClose={() => setDelMember(null)} reload={reload} />
-      {program ? (
+      {selectedProgram ? (
         <ProgramEditDialog
-          program={program}
+          program={selectedProgram}
           open={programEditOpen}
           onClose={() => setProgramEditOpen(false)}
           reload={reload}
