@@ -288,7 +288,7 @@ export function Dashboard({
       const res = await addStampFn({ data: { token, memberId: m.id } });
       toast.success(
         res.completed ? "¡Tarjeta completa! 🎉" : "Sello agregado",
-        { description: res.push.mock ? "Push simulado (configura Google Wallet para el real)" : "Notificación enviada al celular" },
+        { description: res.push.mock ? "Push simulado (configura Google y Apple Wallet para el real)" : "Notificación enviada al celular" },
       );
       reload();
     } catch (err) {
@@ -822,7 +822,7 @@ function ScanDialog({
             <ScanLine className="h-5 w-5 text-primary" /> Escanear QR del cliente
           </DialogTitle>
           <DialogDescription>
-            Suma un sello escaneando el código QR de la tarjeta de Google Wallet del cliente.
+            Suma un sello escaneando el código QR de la tarjeta de Google o Apple Wallet del cliente.
           </DialogDescription>
         </DialogHeader>
         <div
@@ -877,7 +877,7 @@ function BroadcastDialog({
       });
       toast.success("Aviso enviado", {
         description: res.mock
-          ? "Push simulado (configura Google Wallet para el real)"
+          ? "Push simulado (configura Google y Apple Wallet para el real)"
           : `Enviado a ${res.sent} de ${res.total} clientes${res.failed ? ` (${res.failed} fallaron)` : ""}`,
       });
       onClose();
@@ -1009,7 +1009,7 @@ function MemberMessageDialog({
       });
       toast.success("Mensaje enviado", {
         description: res.push.mock
-          ? "Push simulado (configura Google Wallet para el real)"
+          ? "Push simulado (configura Google y Apple Wallet para el real)"
           : "Le llegó a la tarjeta del cliente",
       });
       onClose();
@@ -1026,7 +1026,7 @@ function MemberMessageDialog({
         <DialogHeader>
           <DialogTitle>Enviar mensaje a {member?.full_name}</DialogTitle>
           <DialogDescription>
-            Envíalo a su tarjeta de Google Wallet (notificación) o por WhatsApp. Puedes usar{" "}
+            Envíalo a su tarjeta de Google o Apple Wallet (notificación) o por WhatsApp. Puedes usar{" "}
             <span className="font-mono">{"{nombre}"}</span> y{" "}
             <span className="font-mono">{"{negocio}"}</span>.
           </DialogDescription>
@@ -1218,7 +1218,7 @@ function MemberDeleteDialog({
           <DialogTitle>Eliminar tarjeta</DialogTitle>
           <DialogDescription>
             Se eliminará a <strong>{member.full_name}</strong> y su historial de sellos. Su pase se
-            marcará como expirado en Google Wallet. No se puede deshacer.
+            marcará como expirado en Google y Apple Wallet. No se puede deshacer.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -1290,7 +1290,7 @@ function LogoEditor({ business, reload }: { business: Business; reload: () => vo
         <ImagePlus className="h-4 w-4 text-primary" /> Logo del negocio
       </h3>
       <p className="mt-1 text-xs text-muted-foreground">
-        Aparece en la tarjeta de Google Wallet. Cuadrado, mín. 640×640 px, máx. 5MB.
+        Aparece en la tarjeta de Google y Apple Wallet. Cuadrado, mín. 640×640 px, máx. 5MB.
       </p>
       <div className="mt-3 flex items-center gap-3">
         {business.logo_url ? (

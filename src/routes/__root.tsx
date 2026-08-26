@@ -73,18 +73,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Fideliza — Tarjetas de fidelización en Google Wallet" },
+      { title: "Fideliza — Tarjetas de fidelización en Google y Apple Wallet" },
       {
         name: "description",
         content:
-          "Programa de sellos digital para tu negocio local. Tarjetas en Google Wallet con notificaciones push, sin app propia.",
+          "Programa de sellos digital para tu negocio local. Tarjetas en Google y Apple Wallet con notificaciones push, sin app propia.",
       },
       { name: "author", content: "Fideliza" },
-      { property: "og:title", content: "Fideliza — Tarjetas de fidelización en Google Wallet" },
+      { property: "og:title", content: "Fideliza — Tarjetas de fidelización en Google y Apple Wallet" },
       {
         property: "og:description",
         content:
-          "Programa de sellos digital para tu negocio local. Tarjetas en Google Wallet con notificaciones push.",
+          "Programa de sellos digital para tu negocio local. Tarjetas en Google y Apple Wallet con notificaciones push.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

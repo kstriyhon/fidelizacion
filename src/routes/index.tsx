@@ -25,13 +25,13 @@ function Landing() {
       <section className="mx-auto grid max-w-6xl items-center gap-10 px-6 py-12 md:grid-cols-2">
         <div>
           <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-            <Wallet className="h-3.5 w-3.5" /> Para Google Wallet (Android)
+            <Wallet className="h-3.5 w-3.5" /> Para Google y Apple Wallet
           </span>
           <h1 className="mt-4 text-4xl font-bold tracking-tight md:text-5xl">
             La tarjeta de sellos de tu negocio, en el celular del cliente
           </h1>
           <p className="mt-4 text-lg text-muted-foreground">
-            Reemplaza el cartón de sellos por una tarjeta digital en Google Wallet.
+            Reemplaza el cartón de sellos por una tarjeta digital en Google y Apple Wallet.
             Suma sellos por visita, envía notificaciones push y haz que vuelvan —
             sin desarrollar una app.
           </p>
@@ -78,7 +78,7 @@ function Landing() {
             {
               icon: QrCode,
               title: "Inscripción con un QR",
-              body: "El cliente escanea un QR, pone su nombre y agrega la tarjeta a Google Wallet en segundos.",
+              body: "El cliente escanea un QR, pone su nombre y agrega la tarjeta a Google y Apple Wallet en segundos.",
             },
           ].map((f) => (
             <div key={f.title} className="rounded-xl border bg-card p-6">
