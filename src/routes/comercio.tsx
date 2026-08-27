@@ -384,21 +384,23 @@ export function Dashboard({
                 {selectedProgram ? `${selectedProgram.name} · ${selectedProgram.stamps_required} sellos = ${selectedProgram.reward_description}` : "Sin programa"}
               </p>
               {selectedProgram ? (
-                <div className="mt-0.5 flex gap-2">
+                <div className="mt-2 flex gap-2">
                   {selectedProgram ? (
                     <button
                       type="button"
                       onClick={() => setProgramEditOpen(true)}
-                      className="text-[11px] text-primary hover:underline"
+                      className="inline-flex items-center gap-1 rounded-md bg-muted px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted/80 transition"
                     >
-                      Editar programa
+                      <Pencil className="h-4 w-4" />
+                      Editar
                     </button>
                   ) : null}
                   <button
                     type="button"
                     onClick={() => setNewProgramOpen(true)}
-                    className="text-[11px] text-primary hover:underline"
+                    className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition"
                   >
+                    <Plus className="h-4 w-4" />
                     Nuevo programa
                   </button>
                 </div>
