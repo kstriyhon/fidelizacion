@@ -295,7 +295,7 @@ export function Dashboard({
     typeof window !== "undefined" ? `${window.location.origin}/unirse/${business.slug}` : "";
 
   async function stamp(m: Member) {
-    if (!program) return;
+    if (!selectedProgram) return;
     setBusy(m.id);
     try {
       const token = await getAccessToken();
@@ -509,7 +509,7 @@ export function Dashboard({
             ) : (
               <ul className="mt-3 divide-y rounded-xl border">
                 {shownMembers.map((m) => {
-                  const done = program ? m.stamps >= program.stamps_required : false;
+                  const done = selectedProgram ? m.stamps >= selectedProgram.stamps_required : false;
                   const inactive = isInactiveMember(m, inactiveDays);
                   const nuevo = isNewMember(m);
                   return (
@@ -539,7 +539,7 @@ export function Dashboard({
                           ) : null}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {m.stamps}/{program?.stamps_required ?? "?"} sellos · {m.rewards_redeemed} premios
+                          {m.stamps}/{selectedProgram?.stamps_required ?? "?"} sellos · {m.rewards_redeemed} premios
                         </p>
                       </div>
                       <div className="flex gap-2">
@@ -649,15 +649,13 @@ export function Dashboard({
         businessName={business.name}
         onClose={() => setMsgMember(null)}
       />
-      {program ? (
-        {selectedProgram ? (
-          <BroadcastDialog
-            program={selectedProgram}
-            memberCount={programMembers.length}
-            open={broadcastOpen}
-            onClose={() => setBroadcastOpen(false)}
-          />
-        ) : null}
+      {selectedProgram ? (
+        <BroadcastDialog
+          program={selectedProgram}
+          memberCount={programMembers.length}
+          open={broadcastOpen}
+          onClose={() => setBroadcastOpen(false)}
+        />
       ) : null}
       <ScanDialog open={scanOpen} onClose={() => setScanOpen(false)} onDetect={handleScan} />
       <MemberEditDialog member={editMember} onClose={() => setEditMember(null)} reload={reload} />
