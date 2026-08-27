@@ -39,6 +39,7 @@ import {
   getMyDashboardFn,
   uploadLogoFn,
   setBusinessLocationFn,
+  createProgramFn,
 } from "@/lib/loyaltyActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -271,6 +272,7 @@ export function Dashboard({
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [programEditOpen, setProgramEditOpen] = useState(false);
+  const [newProgramOpen, setNewProgramOpen] = useState(false);
   const [inactiveDays, setInactiveDays] = useState(30);
   const [memberFilter, setMemberFilter] = useState<"all" | "new" | "inactive">("all");
   const [search, setSearch] = useState("");
@@ -382,13 +384,24 @@ export function Dashboard({
                 {selectedProgram ? `${selectedProgram.name} · ${selectedProgram.stamps_required} sellos = ${selectedProgram.reward_description}` : "Sin programa"}
               </p>
               {selectedProgram ? (
-                <button
-                  type="button"
-                  onClick={() => setProgramEditOpen(true)}
-                  className="mt-0.5 text-[11px] text-primary hover:underline"
-                >
-                  Editar programa
-                </button>
+                <div className="mt-0.5 flex gap-2">
+                  {selectedProgram ? (
+                    <button
+                      type="button"
+                      onClick={() => setProgramEditOpen(true)}
+                      className="text-[11px] text-primary hover:underline"
+                    >
+                      Editar programa
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setNewProgramOpen(true)}
+                    className="text-[11px] text-primary hover:underline"
+                  >
+                    Nuevo programa
+                  </button>
+                </div>
               ) : null}
             </div>
           </div>
@@ -670,6 +683,7 @@ export function Dashboard({
           reload={reload}
         />
       ) : null}
+      <NewProgramDialog open={newProgramOpen} onClose={() => setNewProgramOpen(false)} reload={reload} />
     </div>
   );
 }
@@ -768,6 +782,98 @@ function ProgramEditDialog({
           </Button>
           <Button onClick={save} disabled={saving}>
             {saving ? "Guardando…" : "Guardar cambios"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Crear nuevo programa
+// ---------------------------------------------------------------------------
+function NewProgramDialog({
+  open,
+  onClose,
+  reload,
+}: {
+  open: boolean;
+  onClose: () => void;
+  reload: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [required, setRequired] = useState(10);
+  const [reward, setReward] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setName("");
+      setRequired(10);
+      setReward("");
+    }
+  }, [open]);
+
+  async function save() {
+    if (name.trim().length < 2) return toast.error("Escribe el nombre del programa");
+    if (reward.trim().length < 2) return toast.error("Escribe la descripción del premio");
+    setSaving(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) return;
+      await createProgramFn({
+        data: {
+          token,
+          name: name.trim(),
+          stamps_required: required,
+          reward_description: reward.trim(),
+        },
+      });
+      toast.success("¡Programa creado!");
+      onClose();
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Nuevo programa de lealtad</DialogTitle>
+          <DialogDescription>Crea un nuevo programa para tus clientes.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="grid gap-1.5">
+            <Label>Nombre del programa</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: Tarjeta Compras" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label>Sellos para el premio</Label>
+              <Input
+                type="number"
+                min={1}
+                max={30}
+                value={required}
+                onChange={(e) => setRequired(Number(e.target.value))}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Premio</Label>
+              <Input value={reward} onChange={(e) => setReward(e.target.value)} placeholder="Ej: Descuento 20%" />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? "Creando…" : "Crear programa"}
           </Button>
         </DialogFooter>
       </DialogContent>

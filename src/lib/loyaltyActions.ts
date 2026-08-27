@@ -906,3 +906,43 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
       appleMock,
     };
   });
+
+/** Crear nuevo programa de lealtad para un negocio */
+export const createProgramFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      name: z.string().min(2),
+      stamps_required: z.number().int().positive(),
+      reward_description: z.string().min(2),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser(data.token);
+    const db = getSupabaseAdmin();
+
+    // Verificar que el usuario tiene un negocio
+    const { data: business } = await db
+      .from("loyalty_businesses")
+      .select("*")
+      .eq("owner_id", user.id)
+      .single();
+    if (!business) throw new Error("No tienes negocio");
+
+    // Crear el programa
+    const { data: program, error } = await db
+      .from("loyalty_programs")
+      .insert({
+        business_id: business.id,
+        name: data.name,
+        stamps_required: data.stamps_required,
+        reward_description: data.reward_description,
+        active: true,
+        wallet_class_id: `3388000000023178109.prog_${crypto.getRandomValues(new Uint8Array(16)).toString()}`,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return program as Program;
+  });
