@@ -34,7 +34,12 @@ export const Route = createFileRoute("/unirse/$slug")({
 
 function JoinPage() {
   const { business, programs } = Route.useLoaderData();
-  const [selectedProgramIndex, setSelectedProgramIndex] = useState(0);
+  const search = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+  const programIdParam = search.get("program");
+  const initialIndex = programIdParam
+    ? programs.findIndex((p) => p.id === programIdParam)
+    : 0;
+  const [selectedProgramIndex, setSelectedProgramIndex] = useState(initialIndex >= 0 ? initialIndex : 0);
   const program = programs[selectedProgramIndex];
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");

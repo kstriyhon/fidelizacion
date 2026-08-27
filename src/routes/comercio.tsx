@@ -292,7 +292,9 @@ export function Dashboard({
   });
 
   const enrollUrl =
-    typeof window !== "undefined" ? `${window.location.origin}/unirse/${business.slug}` : "";
+    typeof window !== "undefined" && selectedProgram
+      ? `${window.location.origin}/unirse/${business.slug}?program=${selectedProgram.id}`
+      : "";
 
   async function stamp(m: Member) {
     if (!selectedProgram) return;
