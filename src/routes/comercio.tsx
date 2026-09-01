@@ -1473,13 +1473,6 @@ function LogoEditor({ business, reload }: { business: Business; reload: () => vo
 // ---------------------------------------------------------------------------
 function LocationEditor({ business, reload }: { business: Business; reload: () => void }) {
   const [busy, setBusy] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<
-    Array<{ lat: number; lon: number; display_name: string }>
-  >([]);
-  const [searching, setSearching] = useState(false);
-
   const hasLoc = business.latitude != null && business.longitude != null;
 
   async function save(latitude: number | null, longitude: number | null, okMsg: string) {
@@ -1488,8 +1481,6 @@ function LocationEditor({ business, reload }: { business: Business; reload: () =
       const token = await getAccessToken();
       await setBusinessLocationFn({ data: { token, businessId: business.id, latitude, longitude } });
       toast.success(okMsg);
-      setSearchOpen(false);
-      setSearchQuery("");
       reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error");
@@ -1514,31 +1505,6 @@ function LocationEditor({ business, reload }: { business: Business; reload: () =
     );
   }
 
-  async function searchLocation(query: string) {
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
-    setSearching(true);
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`,
-      );
-      const data = await response.json();
-      setSearchResults(
-        data.map((r: Record<string, string>) => ({
-          lat: parseFloat(r.lat),
-          lon: parseFloat(r.lon),
-          display_name: r.display_name,
-        })),
-      );
-    } catch (err) {
-      toast.error("Error al buscar ubicación. Verifica tu conexión.");
-    } finally {
-      setSearching(false);
-    }
-  }
-
   return (
     <div className="rounded-xl border bg-card p-4">
       <h3 className="flex items-center gap-2 text-sm font-semibold">
@@ -1555,13 +1521,10 @@ function LocationEditor({ business, reload }: { business: Business; reload: () =
       ) : (
         <p className="mt-2 text-xs text-muted-foreground">Sin ubicación configurada.</p>
       )}
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+      <div className="mt-3 flex gap-2">
         <Button size="sm" className="gap-1" disabled={busy} onClick={useCurrent}>
           <MapPin className="h-4 w-4" />
           {busy ? "Obteniendo…" : hasLoc ? "Actualizar ubicación" : "Usar mi ubicación actual"}
-        </Button>
-        <Button size="sm" variant="outline" className="gap-1" onClick={() => setSearchOpen(true)}>
-          🔍 Buscar en mapa
         </Button>
         {hasLoc ? (
           <Button
@@ -1575,76 +1538,8 @@ function LocationEditor({ business, reload }: { business: Business; reload: () =
         ) : null}
       </div>
 
-      {searchOpen && (
-        <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Buscar ubicación del negocio</DialogTitle>
-              <DialogDescription>
-                Busca tu negocio por nombre, dirección o ciudad
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="grid gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="search">Dirección o nombre del negocio</Label>
-                <Input
-                  id="search"
-                  placeholder="Ej: Calle Principal 123, Ciudad"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    searchLocation(e.target.value);
-                  }}
-                  autoFocus
-                />
-              </div>
-
-              {searching && (
-                <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                  Buscando…
-                </div>
-              )}
-
-              {searchResults.length > 0 && (
-                <div className="max-h-96 space-y-2 overflow-y-auto rounded-lg border bg-muted/30 p-3">
-                  {searchResults.map((result, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => save(result.lat, result.lon, "Ubicación guardada desde búsqueda")}
-                      disabled={busy}
-                      className="w-full rounded-lg border border-transparent bg-card p-3 text-left text-sm transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <p className="font-medium text-foreground">{result.display_name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        ({result.lat.toFixed(5)}, {result.lon.toFixed(5)})
-                      </p>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {searchQuery && !searching && searchResults.length === 0 && (
-                <div className="flex flex-col items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-                  <p>No se encontraron resultados</p>
-                  <p className="text-xs">Intenta con otro nombre o dirección</p>
-                </div>
-              )}
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setSearchOpen(false)}>
-                Cerrar
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
-
       <p className="mt-2 text-[11px] text-muted-foreground">
-        💡 Busca tu negocio por nombre, dirección o ciudad para seleccionar la ubicación exacta en
-        el mapa.
+        💡 Consejo: hazlo estando físicamente en el local para capturar la ubicación correcta.
       </p>
     </div>
   );
