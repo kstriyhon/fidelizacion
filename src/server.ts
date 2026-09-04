@@ -67,6 +67,23 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
   return brandedErrorResponse();
 }
 
+// El HTML referencia bundles con hash en el nombre. Si un navegador se queda con
+// un HTML viejo, pide assets que el deploy ya borró (404) o —peor— ejecuta un
+// bundle antiguo que apunta a infraestructura muerta. Sin Cache-Control el
+// navegador puede cachearlo heurísticamente, así que lo forzamos a revalidar.
+function withNoCacheHtml(response: Response): Response {
+  if (!(response.headers.get("content-type") ?? "").includes("text/html")) {
+    return response;
+  }
+  const headers = new Headers(response.headers);
+  headers.set("cache-control", "no-cache");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
@@ -77,7 +94,7 @@ export default {
 
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      return await normalizeCatastrophicSsrResponse(response);
+      return withNoCacheHtml(await normalizeCatastrophicSsrResponse(response));
     } catch (error) {
       console.error(error);
       return brandedErrorResponse();
