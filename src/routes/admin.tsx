@@ -425,7 +425,8 @@ function AdminManage({
   onBack: () => void;
 }) {
   const [business, setBusiness] = useState<Business | null>(null);
-  const [program, setProgram] = useState<Program | null>(null);
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -435,8 +436,11 @@ function AdminManage({
       const token = await getAccessToken();
       const res = await adminGetBusinessFn({ data: { token, businessId } });
       setBusiness(res.business);
-      setProgram(res.program);
+      setPrograms(res.programs);
       setMembers(res.members);
+      setSelectedProgramId((prev) =>
+        prev && res.programs.some((p) => p.id === prev) ? prev : (res.programs[0]?.id ?? null),
+      );
     } catch {
       setBusiness(null);
     } finally {
@@ -469,7 +473,9 @@ function AdminManage({
   return (
     <Dashboard
       business={business}
-      program={program}
+      programs={programs}
+      selectedProgramId={selectedProgramId}
+      onSelectProgram={setSelectedProgramId}
       members={members}
       email={email}
       reload={load}
