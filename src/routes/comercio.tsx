@@ -275,6 +275,7 @@ export function Dashboard({
   const [newProgramOpen, setNewProgramOpen] = useState(false);
   const [inactiveDays, setInactiveDays] = useState(30);
   const [memberFilter, setMemberFilter] = useState<"all" | "new" | "inactive">("all");
+  const [birthdayMonth, setBirthdayMonth] = useState<number | null>(null);
   const [search, setSearch] = useState("");
 
   const selectedProgram = programs.find((p) => p.id === selectedProgramId) ?? programs[0] ?? null;
@@ -287,6 +288,7 @@ export function Dashboard({
   const shownMembers = programMembers.filter((m) => {
     if (memberFilter === "new" && !isNewMember(m)) return false;
     if (memberFilter === "inactive" && !isInactiveMember(m, inactiveDays)) return false;
+    if (birthdayMonth !== null && m.birth_month !== birthdayMonth) return false;
     if (q && !`${m.full_name} ${m.phone ?? ""} ${m.email ?? ""}`.toLowerCase().includes(q)) {
       return false;
     }
@@ -344,6 +346,31 @@ export function Dashboard({
       reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleSendBirthdayGreeting() {
+    if (!selectedProgram || shownMembers.length === 0) return;
+    setBusy("birthday");
+    try {
+      const token = await getAccessToken();
+      const month = new Date(2000, birthdayMonth! - 1).toLocaleDateString("es-ES", { month: "long" });
+      const message = `🎉 ¡Feliz cumpleaños! Hoy es tu día especial. Que disfrutes al máximo. 🎂`;
+
+      await Promise.all(
+        shownMembers.map((m) =>
+          sendMemberMessageFn({
+            data: { token, memberId: m.id, message },
+          })
+        )
+      );
+
+      toast.success(`Felicitaciones enviadas a ${shownMembers.length} cliente${shownMembers.length !== 1 ? "s" : ""}`);
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al enviar felicitaciones");
     } finally {
       setBusy(null);
     }
@@ -464,6 +491,18 @@ export function Dashboard({
                   <Megaphone className="h-4 w-4" />
                   <span className="hidden sm:inline">Aviso a todos</span>
                 </Button>
+                {birthdayMonth !== null && shownMembers.length > 0 ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    onClick={() => handleSendBirthdayGreeting()}
+                    disabled={busy !== null}
+                  >
+                    <Gift className="h-4 w-4" />
+                    <span className="hidden sm:inline">Felicitar ({shownMembers.length})</span>
+                  </Button>
+                ) : null}
               </div>
             </div>
 
@@ -509,6 +548,18 @@ export function Dashboard({
                       </select>
                     </span>
                   ) : null}
+                  <select
+                    value={birthdayMonth ?? ""}
+                    onChange={(e) => setBirthdayMonth(e.target.value ? Number(e.target.value) : null)}
+                    className="h-7 rounded-md border border-input bg-background px-2 text-sm"
+                  >
+                    <option value="">Todos los meses</option>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                      <option key={month} value={month}>
+                        {new Date(2000, month - 1).toLocaleDateString("es-ES", { month: "long" })}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             ) : null}
