@@ -5,20 +5,11 @@
 
 function AppleWalletIcon() {
   return (
-    <svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <rect x="2" y="6" width="26" height="18" rx="3.5" fill="#F5F1E8" />
-      <rect x="2" y="6" width="26" height="18" rx="3.5" stroke="#D8D0BE" strokeWidth="0.5" />
-      <rect x="2" y="17.5" width="26" height="3.5" fill="url(#appleStripe)" />
-      <defs>
-        <linearGradient id="appleStripe" x1="2" y1="0" x2="28" y2="0" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#F5A623" />
-          <stop offset="0.25" stopColor="#F55A5A" />
-          <stop offset="0.5" stopColor="#D45AC0" />
-          <stop offset="0.75" stopColor="#5AA9F5" />
-          <stop offset="1" stopColor="#5AD48F" />
-        </linearGradient>
-      </defs>
-    </svg>
+    <img
+      src="https://cdsassets.apple.com/live/7WUAS350/images/ios/locale/es-es/add-to-apple-wallet-logo.png"
+      alt="Add to Apple Wallet"
+      style={{ height: "30px", width: "auto" }}
+    />
   );
 }
 
