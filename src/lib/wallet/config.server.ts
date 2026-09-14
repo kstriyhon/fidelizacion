@@ -40,3 +40,36 @@ export function getWalletConfig(): WalletConfig {
   }
   return { mode: "mock", issuerId, origin };
 }
+
+/**
+ * Obtiene la config de Google Wallet para un programa.
+ * Si el programa tiene credenciales propias, las usa.
+ * Si no, usa las credenciales globales.
+ * Requiere que al menos una de las dos tenga credenciales válidas.
+ */
+export function getWalletConfigForProgram(program: {
+  google_wallet_issuer_id: string | null;
+  google_wallet_sa_email: string | null;
+  google_wallet_sa_private_key: string | null;
+}): WalletConfig {
+  const origin = env("PUBLIC_APP_ORIGIN") ?? "http://localhost:8080";
+
+  // Intenta usar credenciales del programa
+  if (
+    program.google_wallet_issuer_id &&
+    program.google_wallet_sa_email &&
+    program.google_wallet_sa_private_key
+  ) {
+    const privateKeyPem = program.google_wallet_sa_private_key.replace(/\\n/g, "\n");
+    return {
+      mode: "live",
+      issuerId: program.google_wallet_issuer_id,
+      serviceAccountEmail: program.google_wallet_sa_email,
+      privateKeyPem,
+      origin,
+    };
+  }
+
+  // Fallback a credenciales globales
+  return getWalletConfig();
+}

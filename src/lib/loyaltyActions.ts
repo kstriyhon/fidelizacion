@@ -22,6 +22,7 @@ import {
   pushMessage,
   patchLoyaltyObject,
 } from "./wallet/google.server";
+import { getWalletConfigForProgram } from "./wallet/config.server";
 import { createMemberApplePass, regenerateApplePassBuffer } from "./wallet/apple.server";
 import { getAppleWalletConfig } from "./wallet/apple-config.server";
 import { notifyMemberPassUpdate } from "./wallet/apns.server";
@@ -337,7 +338,8 @@ export const createBusinessFn = createServerFn({ method: "POST" })
     if (pe || !prog) throw new Error(`No se pudo crear el programa: ${pe?.message ?? ""}`);
 
     try {
-      const res = await ensureProgramClass(prog as Program, biz as Business);
+      const cfg = getWalletConfigForProgram(prog as Program);
+      const res = await ensureProgramClass(prog as Program, biz as Business, cfg);
       await db.from("loyalty_programs").update({ wallet_class_id: res.classId }).eq("id", prog.id);
     } catch (err) {
       console.warn("provision class:", err);
@@ -398,7 +400,8 @@ export const uploadLogoFn = createServerFn({ method: "POST" })
         .limit(1)
         .maybeSingle();
       if (business && program) {
-        await ensureProgramClass(program as Program, business as Business);
+        const cfg = getWalletConfigForProgram(program as Program);
+        await ensureProgramClass(program as Program, business as Business, cfg);
       }
     } catch (err) {
       console.warn("re-provision tras logo:", err);
@@ -441,7 +444,8 @@ export const setBusinessLocationFn = createServerFn({ method: "POST" })
         .limit(1)
         .maybeSingle();
       if (business && program) {
-        await ensureProgramClass(program as Program, business as Business);
+        const cfg = getWalletConfigForProgram(program as Program);
+        await ensureProgramClass(program as Program, business as Business, cfg);
       }
     } catch (err) {
       console.warn("re-provision tras ubicación:", err);
@@ -506,7 +510,10 @@ export const updateProgramFn = createServerFn({ method: "POST" })
         .select("*")
         .eq("id", data.programId)
         .single();
-      if (business && program) await ensureProgramClass(program as Program, business as Business);
+      if (business && program) {
+        const cfg = getWalletConfigForProgram(program as Program);
+        await ensureProgramClass(program as Program, business as Business, cfg);
+      }
     } catch (err) {
       console.warn("re-provision tras editar programa:", err);
     }
@@ -553,7 +560,8 @@ export const provisionProgramFn = createServerFn({ method: "POST" })
       .single();
     if (be || !business) throw new Error(`Comercio no encontrado: ${be?.message ?? ""}`);
 
-    const res = await ensureProgramClass(program as Program, business as Business);
+    const cfg = getWalletConfigForProgram(program as Program);
+    const res = await ensureProgramClass(program as Program, business as Business, cfg);
     await db.from("loyalty_programs").update({ wallet_class_id: res.classId }).eq("id", program.id);
     return res;
   });
@@ -603,10 +611,12 @@ export const addStampFn = createServerFn({ method: "POST" })
                 faltan === 1 ? "falta" : "faltan"
               } ${faltan} para tu premio.`,
         };
+    const cfg = getWalletConfigForProgram(program);
     const push = await pushStampUpdate(
       { id: member.id, full_name: member.full_name, stamps: newStamps },
       program,
       message,
+      cfg,
     );
 
     await syncApplePass(updated as Member, program, business, {
@@ -642,6 +652,7 @@ export const redeemRewardFn = createServerFn({ method: "POST" })
       note: program.reward_description,
     });
 
+    const cfg = getWalletConfigForProgram(program);
     const push = await pushStampUpdate(
       { id: member.id, full_name: member.full_name, stamps: 0 },
       program,
@@ -690,7 +701,8 @@ export const updateMemberFn = createServerFn({ method: "POST" })
 
     // Actualiza el nombre en el pase (best-effort).
     try {
-      await patchLoyaltyObject(data.memberId, { accountName: data.full_name });
+      const cfg = getWalletConfigForProgram(program);
+      await patchLoyaltyObject(data.memberId, { accountName: data.full_name }, cfg);
     } catch (err) {
       console.warn("patch member name:", err);
     }
@@ -704,7 +716,8 @@ export const deleteMemberFn = createServerFn({ method: "POST" })
     await requireMemberAccess(data.token, data.memberId);
     // Expira el pase para que desaparezca del teléfono del cliente (best-effort).
     try {
-      await patchLoyaltyObject(data.memberId, { state: "EXPIRED" });
+      const cfg = getWalletConfigForProgram(program);
+      await patchLoyaltyObject(data.memberId, { state: "EXPIRED" }, cfg);
     } catch (err) {
       console.warn("expire member object:", err);
     }
@@ -731,7 +744,8 @@ export const sendMemberMessageFn = createServerFn({ method: "POST" })
     const fill = (s: string) => s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
     const title = fill(data.title);
     const body = fill(data.body);
-    const push = await pushMessage(member.id, { header: title, body });
+    const cfg = getWalletConfigForProgram(program);
+    const push = await pushMessage(member.id, { header: title, body }, cfg);
 
     await syncApplePass(member, program, business, { auxiliaryMessage: `${title}: ${body}` });
 
@@ -778,7 +792,8 @@ export const broadcastFn = createServerFn({ method: "POST" })
       list.map(async (m) => {
         const title = fill(data.title, m.full_name);
         const body = fill(data.body, m.full_name);
-        const push = await pushMessage(m.id, { header: title, body });
+        const cfg = prog ? getWalletConfigForProgram(prog as Program) : undefined;
+        const push = await pushMessage(m.id, { header: title, body }, cfg);
         if (prog) {
           await syncApplePass(m, prog as Program, business, { auxiliaryMessage: `${title}: ${body}` });
         }
@@ -845,10 +860,12 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
       .single();
     if (me || !member) throw new Error(`No se pudo inscribir: ${me?.message ?? ""}`);
 
+    const cfg = getWalletConfigForProgram(program as Program);
     const pass = await createMemberPass(
       { id: member.id, full_name: member.full_name, stamps: member.stamps },
       program as Program,
       business as Business,
+      cfg,
     );
 
     await db.from("loyalty_members").update({ wallet_object_id: pass.objectId }).eq("id", member.id);
@@ -899,7 +916,8 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
       const body = tpl
         .replace(/\{nombre\}/g, member.full_name)
         .replace(/\{negocio\}/g, (business as Business).name);
-      await pushMessage(member.id, { header: `¡Bienvenido/a a ${(business as Business).name}! 🎉`, body });
+      const cfg = getWalletConfigForProgram(program as Program);
+      await pushMessage(member.id, { header: `¡Bienvenido/a a ${(business as Business).name}! 🎉`, body }, cfg);
     } catch (err) {
       console.warn("welcome message:", err);
     }

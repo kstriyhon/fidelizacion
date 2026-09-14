@@ -12,7 +12,7 @@
 // Si la config está en modo "mock" (sin credenciales), estas funciones NO llaman
 // a Google: devuelven ids simulados y saveUrl=null, para poder demostrar el flujo.
 
-import { getWalletConfig, type WalletConfig } from "./config.server";
+import { getWalletConfig, getWalletConfigForProgram, type WalletConfig } from "./config.server";
 import { signJwtRs256 } from "./crypto.server";
 
 const WOBJ = "https://walletobjects.googleapis.com/walletobjects/v1";
@@ -177,8 +177,9 @@ async function api(
 export async function ensureProgramClass(
   program: ProgramLike,
   business: BusinessLike,
+  cfg?: WalletConfig,
 ): Promise<{ classId: string; mock: boolean }> {
-  const cfg = getWalletConfig();
+  cfg = cfg ?? getWalletConfig();
   const classId = classIdFor(cfg, program.id);
   if (cfg.mode === "mock") return { classId, mock: true };
 
@@ -205,15 +206,16 @@ export async function createMemberPass(
   member: MemberLike,
   program: ProgramLike,
   business: BusinessLike,
+  cfg?: WalletConfig,
 ): Promise<{ objectId: string; saveUrl: string | null; mock: boolean }> {
-  const cfg = getWalletConfig();
+  cfg = cfg ?? getWalletConfig();
   const objectId = objectIdFor(cfg, member.id);
 
   if (cfg.mode === "mock") {
     return { objectId, saveUrl: null, mock: true };
   }
 
-  await ensureProgramClass(program, business);
+  await ensureProgramClass(program, business, cfg);
   const token = await getAccessToken(cfg);
   const object = buildObject(cfg, member, program, business);
 
@@ -252,8 +254,9 @@ export async function pushStampUpdate(
   member: MemberLike,
   program: ProgramLike,
   message?: { header: string; body: string },
+  cfg?: WalletConfig,
 ): Promise<{ pushed: boolean; mock: boolean }> {
-  const cfg = getWalletConfig();
+  cfg = cfg ?? getWalletConfig();
   if (cfg.mode === "mock") return { pushed: false, mock: true };
 
   const objectId = objectIdFor(cfg, member.id);
@@ -290,8 +293,9 @@ export async function pushStampUpdate(
 export async function patchLoyaltyObject(
   memberId: string,
   patch: Record<string, unknown>,
+  cfg?: WalletConfig,
 ): Promise<{ ok: boolean; mock: boolean }> {
-  const cfg = getWalletConfig();
+  cfg = cfg ?? getWalletConfig();
   if (cfg.mode === "mock") return { ok: false, mock: true };
   const objectId = objectIdFor(cfg, memberId);
   const token = await getAccessToken(cfg);
@@ -309,8 +313,9 @@ export async function patchLoyaltyObject(
 export async function pushMessage(
   memberId: string,
   message: { header: string; body: string },
+  cfg?: WalletConfig,
 ): Promise<{ sent: boolean; mock: boolean }> {
-  const cfg = getWalletConfig();
+  cfg = cfg ?? getWalletConfig();
   if (cfg.mode === "mock") return { sent: false, mock: true };
 
   const objectId = objectIdFor(cfg, memberId);
@@ -336,8 +341,9 @@ export async function pushMessage(
 export async function broadcastToClass(
   programId: string,
   message: { header: string; body: string },
+  cfg?: WalletConfig,
 ): Promise<{ sent: boolean; mock: boolean }> {
-  const cfg = getWalletConfig();
+  cfg = cfg ?? getWalletConfig();
   if (cfg.mode === "mock") return { sent: false, mock: true };
 
   const classId = classIdFor(cfg, programId);
