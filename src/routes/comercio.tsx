@@ -356,13 +356,13 @@ export function Dashboard({
     setBusy("birthday");
     try {
       const token = await getAccessToken();
-      const month = new Date(2000, birthdayMonth! - 1).toLocaleDateString("es-ES", { month: "long" });
-      const message = `🎉 ¡Feliz cumpleaños! Hoy es tu día especial. Que disfrutes al máximo. 🎂`;
+      const title = `🎉 ¡Feliz cumpleaños!`;
+      const body = `Hoy es tu día especial. Que disfrutes al máximo. 🎂`;
 
       await Promise.all(
         shownMembers.map((m) =>
           sendMemberMessageFn({
-            data: { token, memberId: m.id, message },
+            data: { token, memberId: m.id, title, body },
           })
         )
       );

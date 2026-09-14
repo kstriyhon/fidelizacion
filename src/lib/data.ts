@@ -39,6 +39,8 @@ export type Member = {
   full_name: string;
   phone: string | null;
   email: string | null;
+  birth_month: number | null;
+  birth_day: number | null;
   stamps: number;
   rewards_redeemed: number;
   wallet_object_id: string | null;
