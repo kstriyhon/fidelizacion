@@ -18,6 +18,9 @@ import { signJwtRs256 } from "./crypto.server";
 const WOBJ = "https://walletobjects.googleapis.com/walletobjects/v1";
 const SCOPE = "https://www.googleapis.com/auth/wallet_object.issuer";
 
+// Caché de tokens OAuth para evitar hacer una llamada a Google en cada notificación
+let cachedToken: { token: string; expiresAt: number } | null = null;
+
 export type ProgramLike = {
   id: string;
   name: string;
@@ -122,14 +125,19 @@ function buildObject(
 // --- OAuth2 (service account -> access token). Solo modo live. --------------
 
 async function getAccessToken(cfg: Extract<WalletConfig, { mode: "live" }>): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
+  const now = Date.now();
+  if (cachedToken && cachedToken.expiresAt > now) {
+    return cachedToken.token;
+  }
+
+  const nowSec = Math.floor(now / 1000);
   const assertion = await signJwtRs256(
     {
       iss: cfg.serviceAccountEmail,
       scope: SCOPE,
       aud: "https://oauth2.googleapis.com/token",
-      iat: now,
-      exp: now + 3600,
+      iat: nowSec,
+      exp: nowSec + 3600,
     },
     cfg.privateKeyPem,
   );
@@ -142,7 +150,9 @@ async function getAccessToken(cfg: Extract<WalletConfig, { mode: "live" }>): Pro
     }),
   });
   if (!res.ok) throw new Error(`OAuth token error ${res.status}: ${await res.text()}`);
-  return ((await res.json()) as { access_token: string }).access_token;
+  const token = ((await res.json()) as { access_token: string }).access_token;
+  cachedToken = { token, expiresAt: now + 3600 * 1000 - 60000 };
+  return token;
 }
 
 async function api(
