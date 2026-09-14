@@ -43,6 +43,8 @@ function JoinPage() {
   const program = programs[selectedProgramIndex];
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [birthMonth, setBirthMonth] = useState("");
+  const [birthDay, setBirthDay] = useState("");
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{
     member: Member;
@@ -58,7 +60,13 @@ function JoinPage() {
     setSaving(true);
     try {
       const res = await enrollMemberFn({
-        data: { programId: program.id, full_name: name.trim(), phone: phone.trim() || undefined },
+        data: {
+          programId: program.id,
+          full_name: name.trim(),
+          phone: phone.trim() || undefined,
+          birth_month: birthMonth ? parseInt(birthMonth) : undefined,
+          birth_day: birthDay ? parseInt(birthDay) : undefined,
+        },
       });
       setResult(res);
     } catch (err) {
@@ -123,6 +131,38 @@ function JoinPage() {
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="+57 300 000 0000"
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="grid gap-1.5">
+                  <Label>Mes de nacimiento (opcional)</Label>
+                  <select
+                    value={birthMonth}
+                    onChange={(e) => setBirthMonth(e.target.value)}
+                    className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Mes</option>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                      <option key={month} value={month}>
+                        {new Date(2000, month - 1).toLocaleDateString("es-ES", { month: "long" })}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>Día de nacimiento (opcional)</Label>
+                  <select
+                    value={birthDay}
+                    onChange={(e) => setBirthDay(e.target.value)}
+                    className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Día</option>
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                      <option key={day} value={day}>
+                        {day}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <Button type="submit" size="lg" disabled={saving} className="mt-1">
                 {saving ? "Creando tu tarjeta…" : "Obtener mi tarjeta"}

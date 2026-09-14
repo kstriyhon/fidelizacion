@@ -802,6 +802,8 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
       full_name: z.string().min(2),
       phone: z.string().optional(),
       email: z.string().email().optional().or(z.literal("")),
+      birth_month: z.number().int().min(1).max(12).optional(),
+      birth_day: z.number().int().min(1).max(31).optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -831,6 +833,8 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
         full_name: data.full_name,
         phone: data.phone || null,
         email: data.email || null,
+        birth_month: data.birth_month || null,
+        birth_day: data.birth_day || null,
         stamps: 0,
       })
       .select("*")
