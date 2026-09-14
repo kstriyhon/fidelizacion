@@ -1298,7 +1298,6 @@ function MemberEditDialog({
 }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
   const [birthMonth, setBirthMonth] = useState<number | null>(null);
   const [birthDay, setBirthDay] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1307,7 +1306,6 @@ function MemberEditDialog({
     if (member) {
       setName(member.full_name);
       setPhone(member.phone ?? "");
-      setEmail(member.email ?? "");
       setBirthMonth(member.birth_month ?? null);
       setBirthDay(member.birth_day ?? null);
     }
@@ -1327,7 +1325,7 @@ function MemberEditDialog({
           memberId: member.id,
           full_name: name.trim(),
           phone: phone.trim() || null,
-          email: email.trim() || null,
+          email: null,
           birth_month: birthMonth,
           birth_day: birthDay,
         },
@@ -1354,15 +1352,9 @@ function MemberEditDialog({
             <Label>Nombre</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label>WhatsApp</Label>
-              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+57…" />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Email</Label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="correo@…" />
-            </div>
+          <div className="grid gap-1.5">
+            <Label>WhatsApp</Label>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+57…" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
