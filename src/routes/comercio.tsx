@@ -1299,6 +1299,8 @@ function MemberEditDialog({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [birthMonth, setBirthMonth] = useState<number | null>(null);
+  const [birthDay, setBirthDay] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -1306,6 +1308,8 @@ function MemberEditDialog({
       setName(member.full_name);
       setPhone(member.phone ?? "");
       setEmail(member.email ?? "");
+      setBirthMonth(member.birth_month ?? null);
+      setBirthDay(member.birth_day ?? null);
     }
   }, [member]);
 
@@ -1324,6 +1328,8 @@ function MemberEditDialog({
           full_name: name.trim(),
           phone: phone.trim() || null,
           email: email.trim() || null,
+          birth_month: birthMonth,
+          birth_day: birthDay,
         },
       });
       toast.success("Cliente actualizado");
@@ -1356,6 +1362,38 @@ function MemberEditDialog({
             <div className="grid gap-1.5">
               <Label>Email</Label>
               <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="correo@…" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label>Mes de nacimiento</Label>
+              <select
+                value={birthMonth ?? ""}
+                onChange={(e) => setBirthMonth(e.target.value ? Number(e.target.value) : null)}
+                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">Sin mes</option>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                  <option key={month} value={month}>
+                    {new Date(2000, month - 1).toLocaleDateString("es-ES", { month: "long" })}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Día de nacimiento</Label>
+              <select
+                value={birthDay ?? ""}
+                onChange={(e) => setBirthDay(e.target.value ? Number(e.target.value) : null)}
+                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">Sin día</option>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                  <option key={day} value={day}>
+                    {day}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </div>

@@ -667,6 +667,8 @@ export const updateMemberFn = createServerFn({ method: "POST" })
       full_name: z.string().trim().min(2).max(80),
       phone: z.string().trim().max(30).nullable(),
       email: z.string().trim().email().nullable().or(z.literal("")),
+      birth_month: z.number().int().min(1).max(12).nullable().optional(),
+      birth_day: z.number().int().min(1).max(31).nullable().optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -678,6 +680,8 @@ export const updateMemberFn = createServerFn({ method: "POST" })
         full_name: data.full_name,
         phone: data.phone || null,
         email: data.email || null,
+        birth_month: data.birth_month ?? null,
+        birth_day: data.birth_day ?? null,
       })
       .eq("id", data.memberId)
       .select("*")
