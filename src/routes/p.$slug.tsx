@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, useNavigate, notFound } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { Eye, EyeOff } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { Business, Program } from "@/lib/data";
 import { authenticateBusinessFn } from "@/lib/loyaltyActions";
@@ -41,6 +42,7 @@ function DirectAccessPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -108,13 +110,28 @@ function DirectAccessPage() {
 
             <div className="grid gap-1.5">
               <Label>Contraseña</Label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Tu contraseña"
-                disabled={loading}
-              />
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Tu contraseña"
+                  disabled={loading}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  disabled={loading}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground disabled:opacity-50"
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
             </div>
 
             <Button type="submit" className="w-full" disabled={loading}>
