@@ -48,7 +48,9 @@ function DirectAccessPage() {
     // Verificar que el usuario sea del negocio
     // El email del usuario debe ser igual al del negocio
     if (session.user.email !== business.email) {
-      navigate({ to: "/comercio" });
+      // Usuario logueado en otro negocio: redirigir a login
+      // para que se loguee con las credenciales correctas
+      navigate({ to: "/login" });
       return;
     }
 
