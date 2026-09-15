@@ -754,14 +754,12 @@ export function Dashboard({
           reload={reload}
         />
       ) : null}
-      {selectedProgram ? (
-        <BusinessCredentialsDialog
-          business={dashboard.business}
-          open={credentialsOpen}
-          onClose={() => setCredentialsOpen(false)}
-          reload={reload}
-        />
-      ) : null}
+      <BusinessCredentialsDialog
+        business={business!}
+        open={credentialsOpen}
+        onClose={() => setCredentialsOpen(false)}
+        reload={reload}
+      />
       <NewProgramDialog open={newProgramOpen} onClose={() => setNewProgramOpen(false)} reload={reload} />
     </div>
   );
