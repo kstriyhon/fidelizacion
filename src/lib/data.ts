@@ -62,5 +62,43 @@ export type StampEvent = {
   created_at: string;
 };
 
+/** Plan de suscripción SAAS */
+export type Plan = {
+  id: string;
+  name: string;
+  price_cop: number;
+  max_programs: number;
+  max_members: number;
+  description: string | null;
+  active: boolean;
+  created_at: string;
+};
+
+/** Suscripción de un negocio */
+export type Subscription = {
+  id: string;
+  business_id: string;
+  plan_id: string;
+  status: "active" | "paused" | "cancelled";
+  started_at: string;
+  ended_at: string | null;
+  created_at: string;
+};
+
+/** Factura de suscripción */
+export type Invoice = {
+  id: string;
+  subscription_id: string;
+  business_id: string;
+  amount_cop: number;
+  month_year: string;
+  status: "pending" | "paid" | "overdue" | "cancelled";
+  invoice_number: string | null;
+  due_date: string | null;
+  paid_at: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
 /** Programa con su comercio (join usado en las páginas públicas y de servidor). */
 export type ProgramWithBusiness = Program & { business: Business };

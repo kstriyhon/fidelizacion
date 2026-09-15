@@ -6,7 +6,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import type { Business, Member, Program } from "./data";
+import type { Business, Member, Program, Plan, Subscription, Invoice } from "./data";
 import { getSupabaseAdmin } from "./supabaseAdmin.server";
 import {
   requireUser,
@@ -1002,4 +1002,165 @@ export const createProgramFn = createServerFn({ method: "POST" })
 
     if (error) throw new Error(error.message);
     return program as Program;
+  });
+
+// ===========================================================================
+// SAAS - SUSCRIPCIONES Y FACTURACIÓN
+// ===========================================================================
+
+/** Obtener planes disponibles */
+export const listPlansFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string() }))
+  .handler(async ({ data }) => {
+    await requireUser(data.token);
+    const db = getSupabaseAdmin();
+    const { data: plans } = await db
+      .from("loyalty_plans")
+      .select("*")
+      .eq("active", true)
+      .order("price_cop", { ascending: true });
+    return (plans as Plan[]) ?? [];
+  });
+
+/** Crear suscripción para un negocio (solo admin) */
+export const createSubscriptionFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      businessId: z.string().uuid(),
+      planId: z.string().uuid(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin(data.token);
+    const db = getSupabaseAdmin();
+
+    // Cancelar suscripción anterior si existe
+    const { data: existing } = await db
+      .from("loyalty_subscriptions")
+      .select("id")
+      .eq("business_id", data.businessId)
+      .eq("status", "active")
+      .maybeSingle();
+
+    if (existing) {
+      await db
+        .from("loyalty_subscriptions")
+        .update({ status: "cancelled", ended_at: new Date().toISOString() })
+        .eq("id", existing.id);
+    }
+
+    // Crear nueva suscripción
+    const { data: sub, error } = await db
+      .from("loyalty_subscriptions")
+      .insert({
+        business_id: data.businessId,
+        plan_id: data.planId,
+        status: "active",
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return sub as Subscription;
+  });
+
+/** Generar factura del mes actual */
+export const generateMonthlyInvoiceFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), subscriptionId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireAdmin(data.token);
+    const db = getSupabaseAdmin();
+
+    const { data: sub } = await db
+      .from("loyalty_subscriptions")
+      .select("*, plan:loyalty_plans(*)")
+      .eq("id", data.subscriptionId)
+      .single();
+
+    if (!sub) throw new Error("Suscripción no encontrada");
+
+    const plan = sub.plan as unknown as Plan;
+    const now = new Date();
+    const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+    // Verificar si ya existe factura para este mes
+    const { data: existing } = await db
+      .from("loyalty_invoices")
+      .select("id")
+      .eq("subscription_id", data.subscriptionId)
+      .eq("month_year", monthYear)
+      .maybeSingle();
+
+    if (existing) throw new Error("Factura ya existe para este mes");
+
+    // Crear factura
+    const { data: invoice, error } = await db
+      .from("loyalty_invoices")
+      .insert({
+        subscription_id: data.subscriptionId,
+        business_id: sub.business_id,
+        amount_cop: plan.price_cop,
+        month_year: monthYear,
+        status: "pending",
+        due_date: new Date(now.getFullYear(), now.getMonth() + 1, 10).toISOString().split("T")[0],
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return invoice as Invoice;
+  });
+
+/** Marcar factura como pagada */
+export const markInvoicePaidFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      invoiceId: z.string().uuid(),
+      notes: z.string().max(500).nullable().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin(data.token);
+    const db = getSupabaseAdmin();
+
+    const { error } = await db
+      .from("loyalty_invoices")
+      .update({
+        status: "paid",
+        paid_at: new Date().toISOString(),
+        notes: data.notes || null,
+      })
+      .eq("id", data.invoiceId);
+
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** Obtener suscripción y facturas de un negocio */
+export const getSubscriptionDetailsFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), businessId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireAdmin(data.token);
+    const db = getSupabaseAdmin();
+
+    const { data: sub } = await db
+      .from("loyalty_subscriptions")
+      .select("*, plan:loyalty_plans(*)")
+      .eq("business_id", data.businessId)
+      .maybeSingle();
+
+    if (!sub) return { subscription: null, invoices: [] };
+
+    const { data: invoices } = await db
+      .from("loyalty_invoices")
+      .select("*")
+      .eq("subscription_id", sub.id)
+      .order("month_year", { ascending: false });
+
+    return {
+      subscription: sub as Subscription & { plan: Plan },
+      invoices: (invoices as Invoice[]) ?? [],
+    };
   });
