@@ -874,6 +874,10 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
       throw new Error("Este comercio no está disponible por el momento.");
     }
 
+    // Validar límites del plan
+    const validation = await validatePlanLimits((business as Business).id, "members");
+    if (!validation.ok) throw new Error(validation.message);
+
     const { data: member, error: me } = await db
       .from("loyalty_members")
       .insert({
@@ -1163,4 +1167,110 @@ export const getSubscriptionDetailsFn = createServerFn({ method: "POST" })
       subscription: sub as Subscription & { plan: Plan },
       invoices: (invoices as Invoice[]) ?? [],
     };
+  });
+
+/** Validar que el negocio no exceda los límites de su plan */
+async function validatePlanLimits(
+  businessId: string,
+  resource: "programs" | "members",
+): Promise<{ ok: boolean; message?: string }> {
+  const db = getSupabaseAdmin();
+
+  // Obtener suscripción y plan
+  const { data: sub } = await db
+    .from("loyalty_subscriptions")
+    .select("*, plan:loyalty_plans(*)")
+    .eq("business_id", businessId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (!sub) {
+    return { ok: false, message: "Negocio no tiene suscripción activa" };
+  }
+
+  const plan = sub.plan as unknown as Plan;
+
+  if (resource === "programs") {
+    const { count } = await db
+      .from("loyalty_programs")
+      .select("id", { count: "exact" })
+      .eq("business_id", businessId);
+
+    if ((count ?? 0) >= plan.max_programs) {
+      return {
+        ok: false,
+        message: `Plan ${plan.name} permite máximo ${plan.max_programs} programas`,
+      };
+    }
+  } else if (resource === "members") {
+    // Contar miembros en todos los programas del negocio
+    const { data: programs } = await db
+      .from("loyalty_programs")
+      .select("id")
+      .eq("business_id", businessId);
+
+    const programIds = (programs ?? []).map((p) => (p as any).id);
+    let totalMembers = 0;
+
+    if (programIds.length > 0) {
+      const { count } = await db
+        .from("loyalty_members")
+        .select("id", { count: "exact" })
+        .in("program_id", programIds);
+      totalMembers = count ?? 0;
+    }
+
+    if (totalMembers >= plan.max_members) {
+      return {
+        ok: false,
+        message: `Plan ${plan.name} permite máximo ${plan.max_members} clientes`,
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
+/** Crear nuevo programa (con validación de plan) */
+export const createProgramWithValidationFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      name: z.string().min(2),
+      stamps_required: z.number().int().positive(),
+      reward_description: z.string().min(2),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser(data.token);
+    const db = getSupabaseAdmin();
+
+    // Obtener negocio
+    const { data: business } = await db
+      .from("loyalty_businesses")
+      .select("*")
+      .eq("owner_id", user.id)
+      .single();
+
+    if (!business) throw new Error("No tienes negocio");
+
+    // Validar límites del plan
+    const validation = await validatePlanLimits(business.id, "programs");
+    if (!validation.ok) throw new Error(validation.message);
+
+    // Crear programa
+    const { data: program, error } = await db
+      .from("loyalty_programs")
+      .insert({
+        business_id: business.id,
+        name: data.name,
+        stamps_required: data.stamps_required,
+        reward_description: data.reward_description,
+        active: true,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return program as Program;
   });
