@@ -165,7 +165,7 @@ function AdminPanel() {
             <ArrowLeft className="h-4 w-4" /> Volver a negocios
           </Button>
           <div className="mt-8">
-            <SaasPanel businesses={rows?.map((r) => r.business) ?? []} />
+            <SaasPanel businesses={rows ?? []} />
           </div>
         </div>
       </div>
