@@ -67,12 +67,15 @@ function DirectAccessPage() {
         })
       );
 
+      // Guardar selectedBusinessId para que /comercio lo use
+      localStorage.setItem("selectedBusinessId", result.businessId);
+
       toast.success(`¡Bienvenido ${result.businessName}!`);
 
-      // Redirigir al programa
+      // Redirigir al programa del negocio
       navigate({
         to: "/comercio",
-        search: (prev) => ({ ...prev, program: program.id }),
+        search: (prev) => ({ ...prev, program: program.id, business: result.businessId }),
       });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error de autenticación");

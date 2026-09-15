@@ -80,6 +80,7 @@ function ComercioPanel() {
 
   const email = session?.user.email ?? "";
   const programParam = (search as { program?: string }).program;
+  const businessParam = (search as { business?: string }).business;
 
   // Sin sesión -> al login.
   useEffect(() => {
