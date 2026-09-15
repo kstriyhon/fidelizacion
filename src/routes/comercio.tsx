@@ -20,6 +20,7 @@ import {
   MoreVertical,
   Pencil,
   Trash2,
+  Settings,
 } from "lucide-react";
 
 import { useSession, signOut, getAccessToken } from "@/lib/auth";
@@ -40,6 +41,7 @@ import {
   uploadLogoFn,
   setBusinessLocationFn,
   createProgramFn,
+  updateProgramCredentialsFn,
 } from "@/lib/loyaltyActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -272,6 +274,7 @@ export function Dashboard({
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [programEditOpen, setProgramEditOpen] = useState(false);
+  const [credentialsOpen, setCredentialsOpen] = useState(false);
   const [newProgramOpen, setNewProgramOpen] = useState(false);
   const [inactiveDays, setInactiveDays] = useState(30);
   const [memberFilter, setMemberFilter] = useState<"all" | "new" | "inactive">("all");
@@ -413,14 +416,24 @@ export function Dashboard({
               {selectedProgram ? (
                 <div className="mt-2 flex gap-2">
                   {selectedProgram ? (
-                    <button
-                      type="button"
-                      onClick={() => setProgramEditOpen(true)}
-                      className="inline-flex items-center gap-1 rounded-md bg-muted px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted/80 transition"
-                    >
-                      <Pencil className="h-4 w-4" />
-                      Editar
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setProgramEditOpen(true)}
+                        className="inline-flex items-center gap-1 rounded-md bg-muted px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted/80 transition"
+                      >
+                        <Pencil className="h-4 w-4" />
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCredentialsOpen(true)}
+                        className="inline-flex items-center gap-1 rounded-md bg-muted px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted/80 transition"
+                      >
+                        <Settings className="h-4 w-4" />
+                        Credenciales
+                      </button>
+                    </>
                   ) : null}
                   <button
                     type="button"
@@ -733,6 +746,14 @@ export function Dashboard({
           program={selectedProgram}
           open={programEditOpen}
           onClose={() => setProgramEditOpen(false)}
+          reload={reload}
+        />
+      ) : null}
+      {selectedProgram ? (
+        <ProgramCredentialsDialog
+          program={selectedProgram}
+          open={credentialsOpen}
+          onClose={() => setCredentialsOpen(false)}
           reload={reload}
         />
       ) : null}
@@ -1739,5 +1760,143 @@ function StampMessageEditor({ program, reload }: { program: Program; reload: () 
         </Button>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Configurar credenciales de Google Wallet para el programa
+// ---------------------------------------------------------------------------
+function ProgramCredentialsDialog({
+  program,
+  open,
+  onClose,
+  reload,
+}: {
+  program: Program;
+  open: boolean;
+  onClose: () => void;
+  reload: () => void;
+}) {
+  const [issuerId, setIssuerId] = useState(program.google_wallet_issuer_id ?? "");
+  const [email, setEmail] = useState(program.google_wallet_sa_email ?? "");
+  const [privateKey, setPrivateKey] = useState(program.google_wallet_sa_private_key ?? "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setIssuerId(program.google_wallet_issuer_id ?? "");
+      setEmail(program.google_wallet_sa_email ?? "");
+      setPrivateKey(program.google_wallet_sa_private_key ?? "");
+    }
+  }, [open, program]);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const token = await getAccessToken();
+      await updateProgramCredentialsFn({
+        data: {
+          token,
+          programId: program.id,
+          google_wallet_issuer_id: issuerId || null,
+          google_wallet_sa_email: email || null,
+          google_wallet_sa_private_key: privateKey || null,
+        },
+      });
+      toast.success("Credenciales guardadas. Se usarán para este programa.");
+      onClose();
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Settings className="h-5 w-5 text-primary" /> Credenciales de Google Wallet
+          </DialogTitle>
+          <DialogDescription>
+            Asigna credenciales propias de administrador para este programa. Déjalo vacío para usar las credenciales globales.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="rounded-lg bg-blue-500/10 p-3 text-xs text-blue-700 dark:text-blue-400">
+          💡 Cada programa puede tener sus propias credenciales de Google Wallet. Esto permite que
+          diferentes negocios o programas administren sus tarjetas de forma independiente.
+        </div>
+
+        <div className="grid gap-3">
+          <div className="grid gap-1.5">
+            <Label htmlFor="issuer">Issuer ID de Google Wallet</Label>
+            <Input
+              id="issuer"
+              value={issuerId}
+              onChange={(e) => setIssuerId(e.target.value)}
+              placeholder="ej: 3388000000000000000"
+              disabled={saving}
+            />
+            <p className="text-xs text-muted-foreground">ID único en Google Console</p>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="sa-email">Email de Service Account</Label>
+            <Input
+              id="sa-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="ej: service@proyecto.iam.gserviceaccount.com"
+              disabled={saving}
+            />
+            <p className="text-xs text-muted-foreground">Email de la cuenta de servicio</p>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="private-key">Clave privada (PEM)</Label>
+            <Textarea
+              id="private-key"
+              value={privateKey}
+              onChange={(e) => setPrivateKey(e.target.value)}
+              rows={6}
+              placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+              disabled={saving}
+              className="font-mono text-xs"
+            />
+            <p className="text-xs text-muted-foreground">
+              Clave privada RSA en formato PEM. Se guarda encriptada en Supabase.
+            </p>
+          </div>
+
+          {issuerId || email || privateKey ? (
+            <button
+              type="button"
+              onClick={() => {
+                setIssuerId("");
+                setEmail("");
+                setPrivateKey("");
+              }}
+              disabled={saving}
+              className="text-xs text-muted-foreground hover:text-foreground transition"
+            >
+              Limpiar campos
+            </button>
+          ) : null}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? "Guardando…" : "Guardar credenciales"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
