@@ -541,15 +541,14 @@ export const updateWelcomeMessageFn = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** Actualiza las credenciales de Google Wallet para un programa. Solo admin. */
-export const updateProgramCredentialsFn = createServerFn({ method: "POST" })
+/** Actualiza las credenciales de acceso para un programa. Solo admin. */
+export const updateProgramAccessCredentialsFn = createServerFn({ method: "POST" })
   .validator(
     z.object({
       token: z.string(),
       programId: z.string().uuid(),
-      google_wallet_issuer_id: z.string().trim().min(1).nullable(),
-      google_wallet_sa_email: z.string().trim().email().nullable(),
-      google_wallet_sa_private_key: z.string().nullable(),
+      access_username: z.string().trim().min(3).max(50).nullable(),
+      access_password: z.string().trim().min(6).max(100).nullable(),
     }),
   )
   .handler(async ({ data }) => {
@@ -557,14 +556,11 @@ export const updateProgramCredentialsFn = createServerFn({ method: "POST" })
     const db = getSupabaseAdmin();
 
     const update: Record<string, unknown> = {};
-    if (data.google_wallet_issuer_id !== undefined) {
-      update.google_wallet_issuer_id = data.google_wallet_issuer_id || null;
+    if (data.access_username !== undefined) {
+      update.access_username = data.access_username || null;
     }
-    if (data.google_wallet_sa_email !== undefined) {
-      update.google_wallet_sa_email = data.google_wallet_sa_email || null;
-    }
-    if (data.google_wallet_sa_private_key !== undefined) {
-      update.google_wallet_sa_private_key = data.google_wallet_sa_private_key || null;
+    if (data.access_password !== undefined) {
+      update.access_password = data.access_password || null;
     }
 
     const { error } = await db.from("loyalty_programs").update(update).eq("id", data.programId);

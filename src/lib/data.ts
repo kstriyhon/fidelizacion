@@ -31,11 +31,10 @@ export type Program = {
   /** Mensaje de bienvenida al inscribirse. null = por defecto. Vars: {nombre} {negocio} */
   welcome_message: string | null;
   created_at: string;
-  // Credenciales de administrador de Google Wallet para este programa.
-  // Si no están configuradas, se usan las credenciales globales (env vars).
-  google_wallet_issuer_id: string | null;
-  google_wallet_sa_email: string | null;
-  google_wallet_sa_private_key: string | null;
+  // Credenciales de acceso al panel para este programa.
+  // Usuario y contraseña para autenticación en el dashboard del programa.
+  access_username: string | null;
+  access_password: string | null;
 };
 
 export type Member = {

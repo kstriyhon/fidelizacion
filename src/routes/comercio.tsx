@@ -41,7 +41,7 @@ import {
   uploadLogoFn,
   setBusinessLocationFn,
   createProgramFn,
-  updateProgramCredentialsFn,
+  updateProgramAccessCredentialsFn,
 } from "@/lib/loyaltyActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1777,33 +1777,39 @@ function ProgramCredentialsDialog({
   onClose: () => void;
   reload: () => void;
 }) {
-  const [issuerId, setIssuerId] = useState(program.google_wallet_issuer_id ?? "");
-  const [email, setEmail] = useState(program.google_wallet_sa_email ?? "");
-  const [privateKey, setPrivateKey] = useState(program.google_wallet_sa_private_key ?? "");
+  const [username, setUsername] = useState(program.access_username ?? "");
+  const [password, setPassword] = useState(program.access_password ?? "");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setIssuerId(program.google_wallet_issuer_id ?? "");
-      setEmail(program.google_wallet_sa_email ?? "");
-      setPrivateKey(program.google_wallet_sa_private_key ?? "");
+      setUsername(program.access_username ?? "");
+      setPassword(program.access_password ?? "");
     }
   }, [open, program]);
 
   async function save() {
+    if (username.trim().length < 3) {
+      toast.error("El usuario debe tener al menos 3 caracteres");
+      return;
+    }
+    if (password.trim().length < 6) {
+      toast.error("La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+
     setSaving(true);
     try {
       const token = await getAccessToken();
-      await updateProgramCredentialsFn({
+      await updateProgramAccessCredentialsFn({
         data: {
           token,
           programId: program.id,
-          google_wallet_issuer_id: issuerId || null,
-          google_wallet_sa_email: email || null,
-          google_wallet_sa_private_key: privateKey || null,
+          access_username: username.trim() || null,
+          access_password: password.trim() || null,
         },
       });
-      toast.success("Credenciales guardadas. Se usarán para este programa.");
+      toast.success("Credenciales guardadas para este programa.");
       onClose();
       reload();
     } catch (err) {
@@ -1815,84 +1821,54 @@ function ProgramCredentialsDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Settings className="h-5 w-5 text-primary" /> Credenciales de Google Wallet
+            <Settings className="h-5 w-5 text-primary" /> Credenciales de acceso
           </DialogTitle>
           <DialogDescription>
-            Asigna credenciales propias de administrador para este programa. Déjalo vacío para usar las credenciales globales.
+            Usuario y contraseña para acceder al panel de este programa.
           </DialogDescription>
         </DialogHeader>
 
         <div className="rounded-lg bg-blue-500/10 p-3 text-xs text-blue-700 dark:text-blue-400">
-          💡 Cada programa puede tener sus propias credenciales de Google Wallet. Esto permite que
-          diferentes negocios o programas administren sus tarjetas de forma independiente.
+          💡 Las credenciales de Google Wallet se manejan globalmente. Aquí configuras solo el usuario y contraseña para acceder al panel.
         </div>
 
         <div className="grid gap-3">
           <div className="grid gap-1.5">
-            <Label htmlFor="issuer">Issuer ID de Google Wallet</Label>
+            <Label htmlFor="username">Nombre de usuario</Label>
             <Input
-              id="issuer"
-              value={issuerId}
-              onChange={(e) => setIssuerId(e.target.value)}
-              placeholder="ej: 3388000000000000000"
+              id="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="ej: admin_Uruguay"
               disabled={saving}
+              maxLength={50}
             />
-            <p className="text-xs text-muted-foreground">ID único en Google Console</p>
+            <p className="text-xs text-muted-foreground">Mínimo 3 caracteres</p>
           </div>
 
           <div className="grid gap-1.5">
-            <Label htmlFor="sa-email">Email de Service Account</Label>
+            <Label htmlFor="password">Contraseña</Label>
             <Input
-              id="sa-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="ej: service@proyecto.iam.gserviceaccount.com"
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
               disabled={saving}
+              maxLength={100}
             />
-            <p className="text-xs text-muted-foreground">Email de la cuenta de servicio</p>
+            <p className="text-xs text-muted-foreground">Mínimo 6 caracteres</p>
           </div>
-
-          <div className="grid gap-1.5">
-            <Label htmlFor="private-key">Clave privada (PEM)</Label>
-            <Textarea
-              id="private-key"
-              value={privateKey}
-              onChange={(e) => setPrivateKey(e.target.value)}
-              rows={6}
-              placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
-              disabled={saving}
-              className="font-mono text-xs"
-            />
-            <p className="text-xs text-muted-foreground">
-              Clave privada RSA en formato PEM. Se guarda encriptada en Supabase.
-            </p>
-          </div>
-
-          {issuerId || email || privateKey ? (
-            <button
-              type="button"
-              onClick={() => {
-                setIssuerId("");
-                setEmail("");
-                setPrivateKey("");
-              }}
-              disabled={saving}
-              className="text-xs text-muted-foreground hover:text-foreground transition"
-            >
-              Limpiar campos
-            </button>
-          ) : null}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancelar
           </Button>
-          <Button onClick={save} disabled={saving}>
+          <Button onClick={save} disabled={saving || !username || !password}>
             {saving ? "Guardando…" : "Guardar credenciales"}
           </Button>
         </DialogFooter>
