@@ -17,9 +17,26 @@ import { signJwtRs256 } from "./crypto.server";
 
 const WOBJ = "https://walletobjects.googleapis.com/walletobjects/v1";
 const SCOPE = "https://www.googleapis.com/auth/wallet_object.issuer";
+const KV_TOKEN_KEY = "google_oauth_token";
 
-// Caché de tokens OAuth para evitar hacer una llamada a Google en cada notificación
+// Caché en memoria como fallback (para desarrollo local)
 let cachedToken: { token: string; expiresAt: number } | null = null;
+
+// Obtener el binding de Cloudflare KV (si está disponible)
+// KV se accede mediante el contexto de Cloudflare Workers
+function getKVCache() {
+  try {
+    // En Cloudflare Workers, KV está disponible vía importHttp
+    if (typeof globalThis !== "undefined") {
+      const g = globalThis as any;
+      // Intentar acceder a KV mediante diferentes mecanismos posibles
+      return g.KV_CACHE || g.__KV__ || null;
+    }
+  } catch (e) {
+    // Silenciosamente fallar si no está disponible
+  }
+  return null;
+}
 
 export type ProgramLike = {
   id: string;
@@ -126,10 +143,28 @@ function buildObject(
 
 async function getAccessToken(cfg: Extract<WalletConfig, { mode: "live" }>): Promise<string> {
   const now = Date.now();
+  const kv = getKVCache();
+
+  // Intentar obtener del caché en memoria primero (fallback local)
   if (cachedToken && cachedToken.expiresAt > now) {
     return cachedToken.token;
   }
 
+  // Intentar obtener de KV Storage (Cloudflare)
+  if (kv) {
+    try {
+      const cached = await kv.get(KV_TOKEN_KEY, "json");
+      if (cached && cached.expiresAt > now) {
+        cachedToken = cached; // actualizar caché local
+        return cached.token;
+      }
+    } catch (err) {
+      // Si KV falla, continuar sin caché
+      console.error("KV cache read failed:", err);
+    }
+  }
+
+  // Obtener nuevo token de Google OAuth
   const nowSec = Math.floor(now / 1000);
   const assertion = await signJwtRs256(
     {
@@ -151,7 +186,21 @@ async function getAccessToken(cfg: Extract<WalletConfig, { mode: "live" }>): Pro
   });
   if (!res.ok) throw new Error(`OAuth token error ${res.status}: ${await res.text()}`);
   const token = ((await res.json()) as { access_token: string }).access_token;
-  cachedToken = { token, expiresAt: now + 3600 * 1000 - 60000 };
+  const tokenData = { token, expiresAt: now + 3600 * 1000 - 60000 };
+
+  // Guardar en caché local
+  cachedToken = tokenData;
+
+  // Guardar en KV Storage (Cloudflare)
+  if (kv) {
+    try {
+      await kv.put(KV_TOKEN_KEY, JSON.stringify(tokenData), { expirationTtl: 3540 });
+    } catch (err) {
+      console.error("KV cache write failed:", err);
+      // No es fatal si KV falla
+    }
+  }
+
   return token;
 }
 
