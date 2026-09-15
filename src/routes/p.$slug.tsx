@@ -45,21 +45,12 @@ function DirectAccessPage() {
       return;
     }
 
-    // Verificar que el usuario sea del negocio
-    // El email del usuario debe ser igual al del negocio
-    if (session.user.email !== business.email) {
-      // Usuario logueado en otro negocio: redirigir a login
-      // para que se loguee con las credenciales correctas
-      navigate({ to: "/login" });
-      return;
-    }
-
-    // Autenticado y es el dueño: ir al programa
+    // Autenticado: ir directo al programa sin validación
     navigate({
       to: "/comercio",
       search: { program: program.id },
     });
-  }, [session, business, program, navigate]);
+  }, [session, program, navigate]);
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-6">
