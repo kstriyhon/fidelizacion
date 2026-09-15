@@ -1274,3 +1274,86 @@ export const createProgramWithValidationFn = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return program as Program;
   });
+
+// --- Autenticación por username/password ---
+
+/** Autenticar negocio con username y password */
+export const authenticateBusinessFn = createServerFn({ method: "POST" })
+  .validator(z.object({ username: z.string().min(1), password: z.string().min(1) }))
+  .handler(async ({ data }) => {
+    const db = getSupabaseAdmin();
+
+    // Obtener credenciales por username
+    const { data: cred } = await db
+      .from("business_access_credentials")
+      .select("*, business:loyalty_businesses(*)")
+      .eq("username", data.username)
+      .single();
+
+    if (!cred) throw new Error("Usuario o contraseña incorrectos");
+
+    // Validar contraseña (simple comparación por ahora)
+    // TODO: usar bcrypt para hash de contraseñas
+    if (cred.password_hash !== data.password) {
+      throw new Error("Usuario o contraseña incorrectos");
+    }
+
+    const business = cred.business as unknown as Business;
+    return {
+      businessId: business.id,
+      businessName: business.name,
+      businessSlug: business.slug,
+      username: cred.username,
+    };
+  });
+
+/** Actualizar credenciales de acceso del negocio */
+export const updateBusinessCredentialsFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      businessId: z.string().uuid(),
+      username: z.string().min(1),
+      password: z.string().min(1),
+    })
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin(data.token);
+    const db = getSupabaseAdmin();
+
+    // Verificar que el negocio existe
+    const { data: business } = await db
+      .from("loyalty_businesses")
+      .select("id")
+      .eq("id", data.businessId)
+      .single();
+
+    if (!business) throw new Error("Negocio no encontrado");
+
+    // Actualizar o crear credenciales
+    const { data: existing } = await db
+      .from("business_access_credentials")
+      .select("id")
+      .eq("business_id", data.businessId)
+      .maybeSingle();
+
+    if (existing) {
+      // Actualizar
+      await db
+        .from("business_access_credentials")
+        .update({
+          username: data.username,
+          password_hash: data.password, // TODO: hash con bcrypt
+        })
+        .eq("business_id", data.businessId);
+    } else {
+      // Crear
+      await db.from("business_access_credentials").insert({
+        business_id: data.businessId,
+        username: data.username,
+        password_hash: data.password, // TODO: hash con bcrypt
+      });
+    }
+
+    return { success: true };
+  });
