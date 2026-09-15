@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import {
@@ -70,6 +70,7 @@ export const Route = createFileRoute("/comercio")({
 function ComercioPanel() {
   const session = useSession();
   const navigate = useNavigate();
+  const search = useSearch({ from: "/comercio" });
   const [business, setBusiness] = useState<Business | null>(null);
   const [programs, setPrograms] = useState<Program[]>([]);
   const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
@@ -77,6 +78,7 @@ function ComercioPanel() {
   const [loading, setLoading] = useState(true);
 
   const email = session?.user.email ?? "";
+  const programParam = (search as { program?: string }).program;
 
   // Sin sesión -> al login.
   useEffect(() => {
@@ -92,15 +94,17 @@ function ComercioPanel() {
       setBusiness(res.business);
       setPrograms(res.programs);
       setMembers(res.members);
-      if (res.programs.length > 0) {
-        setSelectedProgramId(res.programs[0].id);
-      }
+      // Si hay parámetro ?program=, usa ese; sino el primero
+      const targetProgramId = programParam && res.programs.some((p) => p.id === programParam)
+        ? programParam
+        : res.programs[0]?.id ?? null;
+      setSelectedProgramId(targetProgramId);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [programParam]);
 
   useEffect(() => {
     if (session) load();
