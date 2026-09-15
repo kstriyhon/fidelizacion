@@ -131,17 +131,40 @@ function assertActive(business: Business) {
 
 /** Panel del comercio: datos del negocio del usuario autenticado. */
 export const getMyDashboardFn = createServerFn({ method: "POST" })
-  .validator(z.object({ token: z.string() }))
+  .validator(z.object({ token: z.string(), businessId: z.string().uuid().optional() }))
   .handler(async ({ data }) => {
     const user = await requireUser(data.token);
     const db = getSupabaseAdmin();
-    const { data: business } = await db
-      .from("loyalty_businesses")
-      .select("*")
-      .eq("owner_id", user.id)
-      .order("created_at")
-      .limit(1)
-      .maybeSingle();
+
+    let business;
+    if (data.businessId) {
+      // Si viene businessId (acceso directo), verificar que el usuario tiene credenciales
+      const { data: credentials } = await db
+        .from("business_access_credentials")
+        .select("business_id")
+        .eq("business_id", data.businessId)
+        .maybeSingle();
+
+      if (!credentials) throw new Error("No tienes acceso a este negocio");
+
+      const { data: b } = await db
+        .from("loyalty_businesses")
+        .select("*")
+        .eq("id", data.businessId)
+        .maybeSingle();
+      business = b;
+    } else {
+      // Sino, devolver el negocio del usuario autenticado
+      const { data: b } = await db
+        .from("loyalty_businesses")
+        .select("*")
+        .eq("owner_id", user.id)
+        .order("created_at")
+        .limit(1)
+        .maybeSingle();
+      business = b;
+    }
+
     if (!business) return { business: null, programs: [] as Program[], members: [] as Member[] };
 
     const { data: programs } = await db

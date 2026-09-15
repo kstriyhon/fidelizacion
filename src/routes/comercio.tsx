@@ -92,7 +92,7 @@ function ComercioPanel() {
     try {
       const token = await getAccessToken();
       if (!token) return;
-      const res = await getMyDashboardFn({ data: { token } });
+      const res = await getMyDashboardFn({ data: { token, businessId: businessParam } });
       setBusiness(res.business);
       setPrograms(res.programs);
       setMembers(res.members);
@@ -106,7 +106,7 @@ function ComercioPanel() {
     } finally {
       setLoading(false);
     }
-  }, [programParam]);
+  }, [programParam, businessParam]);
 
   useEffect(() => {
     if (session) load();
