@@ -42,6 +42,7 @@ import {
   setBusinessLocationFn,
   createProgramFn,
   updateProgramAccessCredentialsFn,
+  updateBusinessCredentialsFn,
 } from "@/lib/loyaltyActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -754,8 +755,8 @@ export function Dashboard({
         />
       ) : null}
       {selectedProgram ? (
-        <ProgramCredentialsDialog
-          program={selectedProgram}
+        <BusinessCredentialsDialog
+          business={dashboard.business}
           open={credentialsOpen}
           onClose={() => setCredentialsOpen(false)}
           reload={reload}
@@ -1857,6 +1858,114 @@ function ProgramCredentialsDialog({
             <Label htmlFor="password">Contraseña</Label>
             <Input
               id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              disabled={saving}
+              maxLength={100}
+            />
+            <p className="text-xs text-muted-foreground">Mínimo 6 caracteres</p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button onClick={save} disabled={saving || !username || !password}>
+            {saving ? "Guardando…" : "Guardar credenciales"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Configurar credenciales de acceso del negocio
+// ---------------------------------------------------------------------------
+function BusinessCredentialsDialog({
+  business,
+  open,
+  onClose,
+  reload,
+}: {
+  business: Business;
+  open: boolean;
+  onClose: () => void;
+  reload: () => void;
+}) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (username.trim().length < 3) {
+      toast.error("El usuario debe tener al menos 3 caracteres");
+      return;
+    }
+    if (password.trim().length < 6) {
+      toast.error("La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const token = await getAccessToken();
+      await updateBusinessCredentialsFn({
+        data: {
+          token,
+          businessId: business.id,
+          username: username.trim(),
+          password: password.trim(),
+        },
+      });
+      toast.success("Credenciales de acceso configuradas correctamente.");
+      onClose();
+      setUsername("");
+      setPassword("");
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Settings className="h-5 w-5 text-primary" /> Credenciales de acceso
+          </DialogTitle>
+          <DialogDescription>
+            Usuario y contraseña para acceder al panel de {business.name}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="rounded-lg bg-green-500/10 p-3 text-xs text-green-700 dark:text-green-400">
+          🔑 Estas credenciales se usan para acceder a través del link directo: /p/{business.slug}
+        </div>
+
+        <div className="grid gap-3">
+          <div className="grid gap-1.5">
+            <Label htmlFor="biz-username">Nombre de usuario</Label>
+            <Input
+              id="biz-username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="ej: admin_uruguay"
+              disabled={saving}
+              maxLength={50}
+            />
+            <p className="text-xs text-muted-foreground">Mínimo 3 caracteres</p>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="biz-password">Contraseña</Label>
+            <Input
+              id="biz-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
