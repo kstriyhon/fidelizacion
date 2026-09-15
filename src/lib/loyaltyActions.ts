@@ -732,6 +732,7 @@ export const updateMemberFn = createServerFn({ method: "POST" })
 
     // Actualiza el nombre en el pase (best-effort).
     try {
+      const { program } = await loadMemberContext(data.memberId);
       const cfg = getWalletConfigForProgram(program);
       await patchLoyaltyObject(data.memberId, { accountName: data.full_name }, cfg);
     } catch (err) {
@@ -747,6 +748,7 @@ export const deleteMemberFn = createServerFn({ method: "POST" })
     await requireMemberAccess(data.token, data.memberId);
     // Expira el pase para que desaparezca del teléfono del cliente (best-effort).
     try {
+      const { program } = await loadMemberContext(data.memberId);
       const cfg = getWalletConfigForProgram(program);
       await patchLoyaltyObject(data.memberId, { state: "EXPIRED" }, cfg);
     } catch (err) {
