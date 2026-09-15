@@ -17,6 +17,7 @@ import {
   Trash2,
   UserPlus,
   UserX,
+  CreditCard,
 } from "lucide-react";
 
 import { useSession, signOut, getAccessToken } from "@/lib/auth";
@@ -30,6 +31,7 @@ import {
   adminSetBusinessStatusFn,
   adminDeleteBusinessFn,
 } from "@/lib/loyaltyActions";
+import { SaasPanel } from "@/components/SaasPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,7 +59,7 @@ function AdminPanel() {
   const [rows, setRows] = useState<BusinessRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<
-    { t: "list" } | { t: "create" } | { t: "manage"; id: string }
+    { t: "list" } | { t: "create" } | { t: "manage"; id: string } | { t: "saas" }
   >({ t: "list" });
   const [adminBiz, setAdminBiz] = useState<Business | null>(null);
 
@@ -144,6 +146,32 @@ function AdminPanel() {
     );
   }
 
+  if (view.t === "saas") {
+    return (
+      <div className="min-h-screen bg-background px-6 py-8">
+        <div className="mx-auto max-w-5xl">
+          <Link to="/" className="inline-flex items-center gap-1 text-sm text-muted-foreground">
+            <ArrowLeft className="h-4 w-4" /> Volver
+          </Link>
+          <h1 className="mt-2 flex items-center gap-2 text-2xl font-bold">
+            <ShieldCheck className="h-6 w-6 text-primary" /> Suscripciones SAAS
+          </h1>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setView({ t: "list" })}
+            className="mt-4 gap-1"
+          >
+            <ArrowLeft className="h-4 w-4" /> Volver a negocios
+          </Button>
+          <div className="mt-8">
+            <SaasPanel businesses={rows?.map((r) => r.business) ?? []} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const totalMembers = rows?.reduce(
     (n, b) => n + b.programs.reduce((m, p) => m + p.members.length, 0),
     0,
@@ -195,9 +223,19 @@ function AdminPanel() {
 
         <div className="mt-8 flex items-center justify-between">
           <h2 className="font-semibold">Negocios</h2>
-          <Button size="sm" className="gap-1" onClick={() => setView({ t: "create" })}>
-            <Plus className="h-4 w-4" /> Crear negocio
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1"
+              onClick={() => setView({ t: "saas" })}
+            >
+              <CreditCard className="h-4 w-4" /> Suscripciones
+            </Button>
+            <Button size="sm" className="gap-1" onClick={() => setView({ t: "create" })}>
+              <Plus className="h-4 w-4" /> Crear negocio
+            </Button>
+          </div>
         </div>
 
         {loading ? (
