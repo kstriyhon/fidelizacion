@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createFileRoute, Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import { useSession, signOut, getAccessToken } from "@/lib/auth";
+import { getBusinessSession } from "@/lib/businessSession";
 import { computeMetrics, isInactiveMember, isNewMember } from "@/lib/metrics";
 import type { Business, Member, Program } from "@/lib/data";
 import {
@@ -78,21 +79,38 @@ function ComercioPanel() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const email = session?.user.email ?? "";
+  // Sesión de negocio (/p/{slug}). Se lee una vez: no cambia durante la vida
+  // del componente, y releerla en cada render provocaría recargas en bucle.
+  const businessSession = useMemo(() => getBusinessSession(), []);
+
   const programParam = (search as { program?: string }).program;
   const businessParam = (search as { business?: string }).business;
 
-  // Sin sesión -> al login.
+  // Con sesión de negocio se muestra el usuario; si no, el email de Supabase.
+  const email = businessSession ? businessSession.username : (session?.user.email ?? "");
+
+  // Se considera autenticado con CUALQUIERA de las dos sesiones. Antes solo
+  // contaba la de Supabase, así que el cliente de /p/{slug} entraba con sus
+  // credenciales correctas y acto seguido rebotaba al login de admin.
+  const authed = Boolean(businessSession) || Boolean(session);
+  const authPending = !businessSession && session === undefined;
+
   useEffect(() => {
+    if (businessSession) return;
     if (session === null) navigate({ to: "/login" });
-  }, [session, navigate]);
+  }, [session, businessSession, navigate]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const token = await getAccessToken();
       if (!token) return;
-      const res = await getMyDashboardFn({ data: { token, businessId: businessParam } });
+      // Con sesión de negocio no se manda businessId: el negocio lo decide el
+      // token firmado. El servidor lo ignora igualmente, pero mandarlo daría a
+      // entender que la URL elige negocio, y no es así.
+      const res = await getMyDashboardFn({
+        data: { token, businessId: businessSession ? undefined : businessParam },
+      });
       setBusiness(res.business);
       setPrograms(res.programs);
       setMembers(res.members);
@@ -106,20 +124,40 @@ function ComercioPanel() {
     } finally {
       setLoading(false);
     }
-  }, [programParam, businessParam]);
+  }, [programParam, businessParam, businessSession]);
 
   useEffect(() => {
-    if (session) load();
-  }, [session, load]);
+    if (authed) load();
+  }, [authed, load]);
 
-  if (session === undefined || (session && loading)) {
+  if (authPending || (authed && loading)) {
     return <div className="grid min-h-screen place-items-center text-muted-foreground">Cargando…</div>;
   }
-  if (!session) {
+  if (!authed) {
     return <div className="grid min-h-screen place-items-center text-muted-foreground">Redirigiendo…</div>;
   }
 
   if (!business) {
+    // El onboarding crea un negocio nuevo, y eso solo lo puede hacer el dueño de
+    // la plataforma. Un cliente que llega por /p/{slug} y no encuentra su
+    // negocio es que se lo borraron o su sesión quedó huérfana: se le dice, en
+    // vez de ofrecerle crear uno que no podría.
+    if (businessSession) {
+      return (
+        <div className="grid min-h-screen place-items-center px-6 text-center">
+          <div className="max-w-sm">
+            <p className="font-medium">No encontramos tu negocio</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Puede que tu sesión haya caducado. Vuelve a entrar y, si sigue igual, avisa a quien
+              administra tu programa de fidelización.
+            </p>
+            <Button className="mt-4" onClick={() => void signOut().then(() => navigate({ to: "/" }))}>
+              Volver a entrar
+            </Button>
+          </div>
+        </div>
+      );
+    }
     return <Onboarding email={email} onCreated={load} />;
   }
 

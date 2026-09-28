@@ -14,8 +14,10 @@ import {
   requireBusinessAccess,
   requireProgramAccess,
   requireMemberAccess,
+  businessIdFromSession,
 } from "./authz.server";
 import { hashPassword, verifyPassword, dummyVerify } from "./password.server";
+import { signBusinessToken } from "./businessSession.server";
 import {
   createMemberPass,
   ensureProgramClass,
@@ -130,14 +132,68 @@ function assertActive(business: Business) {
 // LECTURA
 // ===========================================================================
 
+/**
+ * Arma la respuesta del panel a partir del negocio ya resuelto Y AUTORIZADO.
+ *
+ * Ojo: esta función NO comprueba permisos. Da por hecho que quien la llama ya
+ * decidió que ese negocio se puede ver. Existe para que los dos caminos de
+ * entrada — sesión de negocio y cuenta de Supabase — devuelvan exactamente la
+ * misma forma de datos sin duplicar la consulta.
+ */
+async function buildDashboard(
+  db: ReturnType<typeof getSupabaseAdmin>,
+  business: { id: string } | null,
+): Promise<{ business: Business | null; programs: Program[]; members: Member[] }> {
+  if (!business) return { business: null, programs: [], members: [] };
+
+  const { data: programs } = await db
+    .from("loyalty_programs")
+    .select("*")
+    .eq("business_id", business.id)
+    .order("created_at");
+
+  let members: Member[] = [];
+  if (programs && programs.length > 0) {
+    const programIds = programs.map((p) => p.id);
+    const { data: mem } = await db
+      .from("loyalty_members")
+      .select("*")
+      .in("program_id", programIds)
+      .order("enrolled_at", { ascending: false });
+    members = (mem as Member[]) ?? [];
+  }
+
+  return {
+    business: business as Business,
+    programs: (programs as Program[]) ?? [],
+    members,
+  };
+}
+
 /** Panel del comercio: datos del negocio del usuario autenticado. */
 export const getMyDashboardFn = createServerFn({ method: "POST" })
   .validator(z.object({ token: z.string(), businessId: z.string().uuid().optional() }))
   .handler(async ({ data }) => {
-    const user = await requireUser(data.token);
     const db = getSupabaseAdmin();
 
     let business;
+
+    // Sesión de negocio (/p/{slug}): el negocio sale del token FIRMADO y se
+    // ignora a propósito cualquier businessId que mande el cliente. Si se
+    // respetara el de la petición, un comercio podría pedir el panel de otro
+    // cambiando un parámetro, que es justo lo que se cerró esta mañana.
+    const sessionBusinessId = await businessIdFromSession(data.token);
+    if (sessionBusinessId) {
+      const { data: b } = await db
+        .from("loyalty_businesses")
+        .select("*")
+        .eq("id", sessionBusinessId)
+        .maybeSingle();
+      business = b;
+      return await buildDashboard(db, business);
+    }
+
+    const user = await requireUser(data.token);
     if (data.businessId) {
       // El businessId llega desde la URL (?business=...), así que hay que exigir
       // ser DUEÑO del negocio, o admin.
@@ -168,30 +224,7 @@ export const getMyDashboardFn = createServerFn({ method: "POST" })
       business = b;
     }
 
-    if (!business) return { business: null, programs: [] as Program[], members: [] as Member[] };
-
-    const { data: programs } = await db
-      .from("loyalty_programs")
-      .select("*")
-      .eq("business_id", business.id)
-      .order("created_at");
-
-    let members: Member[] = [];
-    if (programs && programs.length > 0) {
-      const programIds = programs.map((p) => p.id);
-      const { data: mem } = await db
-        .from("loyalty_members")
-        .select("*")
-        .in("program_id", programIds)
-        .order("enrolled_at", { ascending: false });
-      members = (mem as Member[]) ?? [];
-    }
-
-    return {
-      business: business as Business,
-      programs: (programs as Program[]) ?? [],
-      members,
-    };
+    return await buildDashboard(db, business);
   });
 
 /** Admin: todos los negocios, programas y clientes. */
@@ -1344,6 +1377,10 @@ export const authenticateBusinessFn = createServerFn({ method: "POST" })
 
     const business = cred.business as unknown as Business;
     return {
+      // Token FIRMADO: es lo único que autoriza al cliente de aquí en adelante.
+      // El businessId que viaja en el resto de campos es informativo (para pintar
+      // la UI); el servidor nunca se fía de él, solo del que lleva el token dentro.
+      token: await signBusinessToken(business.id),
       businessId: business.id,
       businessName: business.name,
       businessSlug: business.slug,

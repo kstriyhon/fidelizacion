@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
+import { getBusinessSession, clearBusinessSession } from "./businessSession";
 
 /** Hook de sesión: null = sin sesión, undefined = cargando. */
 export function useSession(): Session | null | undefined {
@@ -37,6 +38,9 @@ export async function signUp(email: string, password: string) {
 }
 
 export async function signOut() {
+  // Se limpian las dos: "Salir" debe dejar el navegador sin ninguna sesión, no
+  // solo sin la de Supabase — si no, el cliente pulsa salir y sigue dentro.
+  clearBusinessSession();
   await supabase.auth.signOut();
 }
 
@@ -64,8 +68,22 @@ export async function updatePassword(password: string) {
   if (error) throw new Error(error.message);
 }
 
-/** access_token de la sesión actual (para autorizar server functions). "" si no hay. */
+/**
+ * Token para autorizar server functions. "" si no hay ninguna sesión.
+ *
+ * Devuelve el de la sesión de negocio (/p/{slug}) si existe, y si no el
+ * access_token de Supabase. Cambiarlo aquí, y no en cada sitio que lo pide,
+ * hace que las ~18 llamadas del panel funcionen con ambos tipos de sesión sin
+ * tocarlas: así no queda ninguna olvidada dando "no autorizado" al cliente.
+ *
+ * Por qué gana la sesión de negocio cuando hay las dos: es la credencial más
+ * concreta y la que se eligió más recientemente. Y sobre todo, hace honesta la
+ * prueba — si al entrar por /p/{slug} se colara tu sesión de admin, verías
+ * funcionar un panel que al cliente le fallaría.
+ */
 export async function getAccessToken(): Promise<string> {
+  const business = getBusinessSession();
+  if (business) return business.token;
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token ?? "";
 }

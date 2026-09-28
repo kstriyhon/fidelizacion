@@ -2,6 +2,7 @@
 // Regla: una acción sobre un negocio la puede hacer su DUEÑO (owner_id) o un ADMIN.
 import { getSupabaseAdmin, getUserFromToken } from "./supabaseAdmin.server";
 import { isAdminEmail } from "./admins";
+import { looksLikeBusinessToken, verifyBusinessToken } from "./businessSession.server";
 
 export type AuthUser = { id: string; email: string | null };
 
@@ -12,20 +13,70 @@ export async function requireUser(token: string | undefined): Promise<AuthUser> 
   return user;
 }
 
-/** Exige que el usuario sea administrador. */
+/**
+ * Exige que el usuario sea administrador.
+ *
+ * Una sesión de negocio NUNCA vale aquí, y se rechaza de forma explícita en
+ * lugar de confiar en que getUserFromToken falle por su cuenta: dejar que el
+ * rechazo dependa de un efecto colateral es justo el tipo de suposición que se
+ * rompe en silencio cuando alguien cambia algo más adelante.
+ */
 export async function requireAdmin(token: string | undefined): Promise<AuthUser> {
+  if (looksLikeBusinessToken(token)) {
+    throw new Error("No autorizado: se requiere administrador.");
+  }
   const user = await requireUser(token);
   if (!isAdminEmail(user.email)) throw new Error("No autorizado: se requiere administrador.");
   return user;
 }
 
-/** Exige que el usuario sea dueño del negocio indicado, o admin. */
+/**
+ * Resuelve el businessId de una sesión de negocio (/p/{slug}), o null si el
+ * token no es de ese tipo. Lanza si tiene la forma pero no es válido —
+ * manipulado o caducado — para que el cliente vea "vuelve a entrar" en lugar de
+ * caer por el camino de Supabase con un error confuso.
+ */
+export async function businessIdFromSession(token: string | undefined): Promise<string | null> {
+  if (!looksLikeBusinessToken(token)) return null;
+  const businessId = await verifyBusinessToken(token);
+  if (!businessId) throw new Error("Tu sesión expiró. Vuelve a iniciar sesión.");
+  return businessId;
+}
+
+export type Access = {
+  /** null cuando se entró con sesión de negocio: ahí no hay usuario de Supabase. */
+  user: AuthUser | null;
+  isAdmin: boolean;
+  /** true si se entró por /p/{slug} en vez de con cuenta de Supabase. */
+  viaBusinessSession: boolean;
+};
+
+/**
+ * Exige acceso al negocio indicado. Lo concede de dos formas:
+ *  - sesión de negocio (/p/{slug}), y SOLO para su propio negocio;
+ *  - cuenta de Supabase, siendo dueño del negocio o admin.
+ *
+ * Es el único punto por el que pasan requireProgramAccess y requireMemberAccess,
+ * así que habilitar aquí la sesión de negocio habilita de paso dar sellos,
+ * canjear premios y mandar mensajes, sin tocar esas 13 llamadas una a una.
+ */
 export async function requireBusinessAccess(
   token: string | undefined,
   businessId: string,
-): Promise<{ user: AuthUser; isAdmin: boolean }> {
+): Promise<Access> {
+  // La comprobación que sostiene todo: el token va firmado con UN businessId
+  // dentro, así que un cliente no puede pedir el panel de otro comercio
+  // cambiando el id — tendría que falsificar la firma.
+  const sessionBusinessId = await businessIdFromSession(token);
+  if (sessionBusinessId) {
+    if (sessionBusinessId !== businessId) {
+      throw new Error("No autorizado: esta sesión no pertenece a ese negocio.");
+    }
+    return { user: null, isAdmin: false, viaBusinessSession: true };
+  }
+
   const user = await requireUser(token);
-  if (isAdminEmail(user.email)) return { user, isAdmin: true };
+  if (isAdminEmail(user.email)) return { user, isAdmin: true, viaBusinessSession: false };
 
   const admin = getSupabaseAdmin();
   const { data: biz } = await admin
@@ -36,14 +87,14 @@ export async function requireBusinessAccess(
   if (!biz || biz.owner_id !== user.id) {
     throw new Error("No autorizado: no eres dueño de este negocio.");
   }
-  return { user, isAdmin: false };
+  return { user, isAdmin: false, viaBusinessSession: false };
 }
 
 /** Igual que requireBusinessAccess pero resolviendo el negocio desde un programa. */
 export async function requireProgramAccess(
   token: string | undefined,
   programId: string,
-): Promise<{ user: AuthUser; isAdmin: boolean; businessId: string }> {
+): Promise<Access & { businessId: string }> {
   const admin = getSupabaseAdmin();
   const { data: prog } = await admin
     .from("loyalty_programs")
@@ -59,7 +110,7 @@ export async function requireProgramAccess(
 export async function requireMemberAccess(
   token: string | undefined,
   memberId: string,
-): Promise<{ user: AuthUser; isAdmin: boolean }> {
+): Promise<Access> {
   const admin = getSupabaseAdmin();
   const { data: mem } = await admin
     .from("loyalty_members")
@@ -67,8 +118,9 @@ export async function requireMemberAccess(
     .eq("id", memberId)
     .maybeSingle();
   if (!mem) throw new Error("Cliente no encontrado.");
-  return requireProgramAccess(token, mem.program_id as string).then(({ user, isAdmin }) => ({
-    user,
-    isAdmin,
-  }));
+  const { user, isAdmin, viaBusinessSession } = await requireProgramAccess(
+    token,
+    mem.program_id as string,
+  );
+  return { user, isAdmin, viaBusinessSession };
 }

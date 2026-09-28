@@ -5,6 +5,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { Business, Program } from "@/lib/data";
 import { authenticateBusinessFn } from "@/lib/loyaltyActions";
+import { saveBusinessSession } from "@/lib/businessSession";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,27 +58,23 @@ function DirectAccessPage() {
         data: { username: username.trim(), password: password.trim() },
       });
 
-      // Guardar sesión en localStorage
-      localStorage.setItem(
-        "business_session",
-        JSON.stringify({
-          businessId: result.businessId,
-          businessName: result.businessName,
-          businessSlug: result.businessSlug,
-          username: result.username,
-          timestamp: Date.now(),
-        })
-      );
-
-      // Guardar selectedBusinessId para que /comercio lo use
-      localStorage.setItem("selectedBusinessId", result.businessId);
+      // Se guarda el token firmado que emitió el servidor. Antes aquí solo se
+      // escribía un JSON con el businessId, que no acreditaba nada: cualquiera
+      // podía ponerlo a mano desde la consola.
+      saveBusinessSession({
+        token: result.token,
+        businessId: result.businessId,
+        businessName: result.businessName,
+        businessSlug: result.businessSlug,
+        username: result.username,
+      });
 
       toast.success(`¡Bienvenido ${result.businessName}!`);
 
-      // Redirigir al programa del negocio
+      // Sin ?business=: el negocio lo determina el token, no la URL.
       navigate({
         to: "/comercio",
-        search: (prev) => ({ ...prev, program: program.id, business: result.businessId }),
+        search: (prev) => ({ ...prev, program: program.id }),
       });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error de autenticación");
