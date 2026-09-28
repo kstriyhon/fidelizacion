@@ -139,14 +139,16 @@ export const getMyDashboardFn = createServerFn({ method: "POST" })
 
     let business;
     if (data.businessId) {
-      // Si viene businessId (acceso directo), verificar que el usuario tiene credenciales
-      const { data: credentials } = await db
-        .from("business_access_credentials")
-        .select("business_id")
-        .eq("business_id", data.businessId)
-        .maybeSingle();
-
-      if (!credentials) throw new Error("No tienes acceso a este negocio");
+      // El businessId llega desde la URL (?business=...), así que hay que exigir
+      // ser DUEÑO del negocio, o admin.
+      //
+      // Antes aquí solo se comprobaba que el negocio TUVIERA credenciales
+      // configuradas, sin atarlas nunca al usuario autenticado: se pedía el
+      // token, se resolvía el usuario y luego no se comparaba con nada. Como el
+      // registro en /login está abierto, cualquiera podía crearse una cuenta,
+      // entrar a /comercio?business=<uuid ajeno> y recibir el panel completo de
+      // otro comercio, con su lista de clientes y teléfonos.
+      await requireBusinessAccess(data.token, data.businessId);
 
       const { data: b } = await db
         .from("loyalty_businesses")
