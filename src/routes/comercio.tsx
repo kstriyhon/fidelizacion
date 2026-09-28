@@ -44,6 +44,7 @@ import {
   createProgramFn,
   updateProgramAccessCredentialsFn,
   updateBusinessCredentialsFn,
+  type SwitchableBusiness,
 } from "@/lib/loyaltyActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -77,6 +78,7 @@ function ComercioPanel() {
   const [programs, setPrograms] = useState<Program[]>([]);
   const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
+  const [switchable, setSwitchable] = useState<SwitchableBusiness[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Sesión de negocio (/p/{slug}). Se lee una vez: no cambia durante la vida
@@ -114,6 +116,7 @@ function ComercioPanel() {
       setBusiness(res.business);
       setPrograms(res.programs);
       setMembers(res.members);
+      setSwitchable(res.switchable);
       // Si hay parámetro ?program=, usa ese; sino el primero
       const targetProgramId = programParam && res.programs.some((p) => p.id === programParam)
         ? programParam
@@ -170,6 +173,12 @@ function ComercioPanel() {
       members={members}
       email={email}
       reload={load}
+      switchable={switchable}
+      onSwitchBusiness={(id) =>
+        // Se quita ?program= al cambiar: los programas son de cada negocio, y
+        // arrastrar el del anterior dejaría seleccionado uno que no existe aquí.
+        navigate({ to: "/comercio", search: { business: id } })
+      }
     />
   );
 }
@@ -301,6 +310,8 @@ export function Dashboard({
   email,
   reload,
   onBack,
+  switchable = [],
+  onSwitchBusiness,
 }: {
   business: Business;
   programs: Program[];
@@ -310,6 +321,9 @@ export function Dashboard({
   email: string;
   reload: () => void;
   onBack?: () => void;
+  /** Negocios entre los que puede cambiar esta sesión. Vacío = sin selector. */
+  switchable?: SwitchableBusiness[];
+  onSwitchBusiness?: (businessId: string) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [msgMember, setMsgMember] = useState<Member | null>(null);
@@ -492,6 +506,23 @@ export function Dashboard({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Selector de negocio. Solo aparece si hay más de uno entre los que
+                elegir: con un único comercio sería ruido, y el cliente que entra
+                por /p/{slug} recibe la lista vacía a propósito. */}
+            {!onBack && switchable.length > 1 && onSwitchBusiness ? (
+              <select
+                value={business.id}
+                onChange={(e) => onSwitchBusiness(e.target.value)}
+                aria-label="Cambiar de negocio"
+                className="h-8 max-w-[10rem] rounded-md border border-input bg-transparent px-2 text-sm sm:max-w-none"
+              >
+                {switchable.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             {onBack ? (
               <Button variant="outline" size="sm" onClick={onBack} className="gap-1">
                 <ArrowLeft className="h-4 w-4" /> Volver al admin

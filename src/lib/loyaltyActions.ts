@@ -16,6 +16,7 @@ import {
   requireMemberAccess,
   businessIdFromSession,
 } from "./authz.server";
+import { isAdminEmail } from "./admins";
 import { hashPassword, verifyPassword, dummyVerify } from "./password.server";
 import { signBusinessToken } from "./businessSession.server";
 import {
@@ -132,6 +133,9 @@ function assertActive(business: Business) {
 // LECTURA
 // ===========================================================================
 
+/** Entrada del selector de negocios del panel. */
+export type SwitchableBusiness = { id: string; name: string };
+
 /**
  * Arma la respuesta del panel a partir del negocio ya resuelto Y AUTORIZADO.
  *
@@ -143,8 +147,14 @@ function assertActive(business: Business) {
 async function buildDashboard(
   db: ReturnType<typeof getSupabaseAdmin>,
   business: { id: string } | null,
-): Promise<{ business: Business | null; programs: Program[]; members: Member[] }> {
-  if (!business) return { business: null, programs: [], members: [] };
+  switchable: SwitchableBusiness[] = [],
+): Promise<{
+  business: Business | null;
+  programs: Program[];
+  members: Member[];
+  switchable: SwitchableBusiness[];
+}> {
+  if (!business) return { business: null, programs: [], members: [], switchable };
 
   const { data: programs } = await db
     .from("loyalty_programs")
@@ -167,7 +177,27 @@ async function buildDashboard(
     business: business as Business,
     programs: (programs as Program[]) ?? [],
     members,
+    switchable,
   };
+}
+
+/**
+ * Negocios entre los que ESTA sesión puede cambiar, para el selector del panel.
+ *
+ * Se devuelve junto con el panel en vez de en una llamada aparte: es la misma
+ * petición que ya se hace al cargar, y así el selector no parpadea llegando
+ * tarde. Solo id y nombre — no hace falta más para pintar un desplegable, y
+ * cuanto menos viaje, mejor.
+ */
+async function listSwitchableBusinesses(
+  db: ReturnType<typeof getSupabaseAdmin>,
+  user: { id: string; email: string | null },
+): Promise<SwitchableBusiness[]> {
+  const base = db.from("loyalty_businesses").select("id,name").order("name");
+  // Un admin gestiona toda la plataforma; el resto, solo lo suyo. El filtro por
+  // owner_id es lo que impide que el desplegable liste negocios ajenos.
+  const { data } = isAdminEmail(user.email) ? await base : await base.eq("owner_id", user.id);
+  return (data as SwitchableBusiness[]) ?? [];
 }
 
 /** Panel del comercio: datos del negocio del usuario autenticado. */
@@ -224,7 +254,11 @@ export const getMyDashboardFn = createServerFn({ method: "POST" })
       business = b;
     }
 
-    return await buildDashboard(db, business);
+    // Solo la sesión de Supabase llega aquí, así que solo el dueño (o el admin)
+    // recibe la lista. Un cliente de /p/{slug} sale antes con switchable vacío:
+    // tiene un único negocio y no debe ni enterarse de que existen otros.
+    const switchable = await listSwitchableBusinesses(db, user);
+    return await buildDashboard(db, business, switchable);
   });
 
 /** Admin: todos los negocios, programas y clientes. */
