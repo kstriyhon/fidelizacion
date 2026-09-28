@@ -1,3 +1,7 @@
+> ⚠️ **DOCUMENTO HISTÓRICO.** Puede contener URLs de Supabase o de Workers que ya no
+> existen; seguirlas lleva a un `Failed to fetch`. Para el estado vigente, lee
+> [ESTADO.md](ESTADO.md).
+
 # 🎉 Fideliza: Apple Wallet Implementation - FINAL STATUS
 
 **Date:** 2026-08-20  

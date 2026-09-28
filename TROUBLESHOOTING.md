@@ -1,3 +1,7 @@
+> ⚠️ **DOCUMENTO HISTÓRICO.** Puede contener URLs de Supabase o de Workers que ya no
+> existen; seguirlas lleva a un `Failed to fetch`. Para el estado vigente, lee
+> [ESTADO.md](ESTADO.md).
+
 # 🔧 Troubleshooting: Apple Wallet Implementation
 
 **Status:** ⚠️ Problema de integración en Cloudflare Workers

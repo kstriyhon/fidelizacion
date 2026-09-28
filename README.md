@@ -1,5 +1,9 @@
 # Fideliza — Tarjetas de fidelización en Google Wallet
 
+> 📍 **¿Retomas el proyecto o entras nuevo?** Empieza por **[ESTADO.md](ESTADO.md)**: URLs
+> vigentes, los dos sistemas de login, convenciones que hay que respetar y qué queda
+> pendiente. Los demás `.md` de la raíz son históricos.
+
 SaaS de tarjetas de sellos digitales para negocios locales (cafeterías, panaderías,
 restaurantes, barberías…). El cliente lleva su tarjeta en **Google Wallet (Android)**
 y recibe **notificaciones push** cuando le suman un sello o completa la tarjeta.
