@@ -16,11 +16,6 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as UnirseSlugRouteImport } from './routes/unirse.$slug'
 import { Route as PSlugRouteImport } from './routes/p.$slug'
-import { Route as GymReferirCodeRouteImport } from './routes/gym-referir.$code'
-import { Route as GymNotificationsProgramIdRouteImport } from './routes/gym-notifications.$programId'
-import { Route as GymMemberIdRouteImport } from './routes/gym-member.$id'
-import { Route as GymInscribirseSlugRouteImport } from './routes/gym-inscribirse.$slug'
-import { Route as GymAdminProgramIdRouteImport } from './routes/gym-admin.$programId'
 
 const NuevaClaveRoute = NuevaClaveRouteImport.update({
   id: '/nueva-clave',
@@ -57,32 +52,6 @@ const PSlugRoute = PSlugRouteImport.update({
   path: '/p/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const GymReferirCodeRoute = GymReferirCodeRouteImport.update({
-  id: '/gym-referir/$code',
-  path: '/gym-referir/$code',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GymNotificationsProgramIdRoute =
-  GymNotificationsProgramIdRouteImport.update({
-    id: '/gym-notifications/$programId',
-    path: '/gym-notifications/$programId',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const GymMemberIdRoute = GymMemberIdRouteImport.update({
-  id: '/gym-member/$id',
-  path: '/gym-member/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GymInscribirseSlugRoute = GymInscribirseSlugRouteImport.update({
-  id: '/gym-inscribirse/$slug',
-  path: '/gym-inscribirse/$slug',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GymAdminProgramIdRoute = GymAdminProgramIdRouteImport.update({
-  id: '/gym-admin/$programId',
-  path: '/gym-admin/$programId',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -90,11 +59,6 @@ export interface FileRoutesByFullPath {
   '/comercio': typeof ComercioRoute
   '/login': typeof LoginRoute
   '/nueva-clave': typeof NuevaClaveRoute
-  '/gym-admin/$programId': typeof GymAdminProgramIdRoute
-  '/gym-inscribirse/$slug': typeof GymInscribirseSlugRoute
-  '/gym-member/$id': typeof GymMemberIdRoute
-  '/gym-notifications/$programId': typeof GymNotificationsProgramIdRoute
-  '/gym-referir/$code': typeof GymReferirCodeRoute
   '/p/$slug': typeof PSlugRoute
   '/unirse/$slug': typeof UnirseSlugRoute
 }
@@ -104,11 +68,6 @@ export interface FileRoutesByTo {
   '/comercio': typeof ComercioRoute
   '/login': typeof LoginRoute
   '/nueva-clave': typeof NuevaClaveRoute
-  '/gym-admin/$programId': typeof GymAdminProgramIdRoute
-  '/gym-inscribirse/$slug': typeof GymInscribirseSlugRoute
-  '/gym-member/$id': typeof GymMemberIdRoute
-  '/gym-notifications/$programId': typeof GymNotificationsProgramIdRoute
-  '/gym-referir/$code': typeof GymReferirCodeRoute
   '/p/$slug': typeof PSlugRoute
   '/unirse/$slug': typeof UnirseSlugRoute
 }
@@ -119,11 +78,6 @@ export interface FileRoutesById {
   '/comercio': typeof ComercioRoute
   '/login': typeof LoginRoute
   '/nueva-clave': typeof NuevaClaveRoute
-  '/gym-admin/$programId': typeof GymAdminProgramIdRoute
-  '/gym-inscribirse/$slug': typeof GymInscribirseSlugRoute
-  '/gym-member/$id': typeof GymMemberIdRoute
-  '/gym-notifications/$programId': typeof GymNotificationsProgramIdRoute
-  '/gym-referir/$code': typeof GymReferirCodeRoute
   '/p/$slug': typeof PSlugRoute
   '/unirse/$slug': typeof UnirseSlugRoute
 }
@@ -135,11 +89,6 @@ export interface FileRouteTypes {
     | '/comercio'
     | '/login'
     | '/nueva-clave'
-    | '/gym-admin/$programId'
-    | '/gym-inscribirse/$slug'
-    | '/gym-member/$id'
-    | '/gym-notifications/$programId'
-    | '/gym-referir/$code'
     | '/p/$slug'
     | '/unirse/$slug'
   fileRoutesByTo: FileRoutesByTo
@@ -149,11 +98,6 @@ export interface FileRouteTypes {
     | '/comercio'
     | '/login'
     | '/nueva-clave'
-    | '/gym-admin/$programId'
-    | '/gym-inscribirse/$slug'
-    | '/gym-member/$id'
-    | '/gym-notifications/$programId'
-    | '/gym-referir/$code'
     | '/p/$slug'
     | '/unirse/$slug'
   id:
@@ -163,11 +107,6 @@ export interface FileRouteTypes {
     | '/comercio'
     | '/login'
     | '/nueva-clave'
-    | '/gym-admin/$programId'
-    | '/gym-inscribirse/$slug'
-    | '/gym-member/$id'
-    | '/gym-notifications/$programId'
-    | '/gym-referir/$code'
     | '/p/$slug'
     | '/unirse/$slug'
   fileRoutesById: FileRoutesById
@@ -178,11 +117,6 @@ export interface RootRouteChildren {
   ComercioRoute: typeof ComercioRoute
   LoginRoute: typeof LoginRoute
   NuevaClaveRoute: typeof NuevaClaveRoute
-  GymAdminProgramIdRoute: typeof GymAdminProgramIdRoute
-  GymInscribirseSlugRoute: typeof GymInscribirseSlugRoute
-  GymMemberIdRoute: typeof GymMemberIdRoute
-  GymNotificationsProgramIdRoute: typeof GymNotificationsProgramIdRoute
-  GymReferirCodeRoute: typeof GymReferirCodeRoute
   PSlugRoute: typeof PSlugRoute
   UnirseSlugRoute: typeof UnirseSlugRoute
 }
@@ -238,41 +172,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/gym-referir/$code': {
-      id: '/gym-referir/$code'
-      path: '/gym-referir/$code'
-      fullPath: '/gym-referir/$code'
-      preLoaderRoute: typeof GymReferirCodeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/gym-notifications/$programId': {
-      id: '/gym-notifications/$programId'
-      path: '/gym-notifications/$programId'
-      fullPath: '/gym-notifications/$programId'
-      preLoaderRoute: typeof GymNotificationsProgramIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/gym-member/$id': {
-      id: '/gym-member/$id'
-      path: '/gym-member/$id'
-      fullPath: '/gym-member/$id'
-      preLoaderRoute: typeof GymMemberIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/gym-inscribirse/$slug': {
-      id: '/gym-inscribirse/$slug'
-      path: '/gym-inscribirse/$slug'
-      fullPath: '/gym-inscribirse/$slug'
-      preLoaderRoute: typeof GymInscribirseSlugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/gym-admin/$programId': {
-      id: '/gym-admin/$programId'
-      path: '/gym-admin/$programId'
-      fullPath: '/gym-admin/$programId'
-      preLoaderRoute: typeof GymAdminProgramIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -282,11 +181,6 @@ const rootRouteChildren: RootRouteChildren = {
   ComercioRoute: ComercioRoute,
   LoginRoute: LoginRoute,
   NuevaClaveRoute: NuevaClaveRoute,
-  GymAdminProgramIdRoute: GymAdminProgramIdRoute,
-  GymInscribirseSlugRoute: GymInscribirseSlugRoute,
-  GymMemberIdRoute: GymMemberIdRoute,
-  GymNotificationsProgramIdRoute: GymNotificationsProgramIdRoute,
-  GymReferirCodeRoute: GymReferirCodeRoute,
   PSlugRoute: PSlugRoute,
   UnirseSlugRoute: UnirseSlugRoute,
 }
