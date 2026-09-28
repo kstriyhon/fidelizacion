@@ -15,6 +15,7 @@ import {
   requireProgramAccess,
   requireMemberAccess,
 } from "./authz.server";
+import { hashPassword, verifyPassword, dummyVerify } from "./password.server";
 import {
   createMemberPass,
   ensureProgramClass,
@@ -1306,19 +1307,37 @@ export const authenticateBusinessFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const db = getSupabaseAdmin();
 
-    // Obtener credenciales por username
+    // maybeSingle y no single: si el username no existe queremos null, no una
+    // excepción distinta que delate por el mensaje que ese usuario no está.
     const { data: cred } = await db
       .from("business_access_credentials")
       .select("*, business:loyalty_businesses(*)")
       .eq("username", data.username)
-      .single();
+      .maybeSingle();
 
-    if (!cred) throw new Error("Usuario o contraseña incorrectos");
-
-    // Validar contraseña (simple comparación por ahora)
-    // TODO: usar bcrypt para hash de contraseñas
-    if (cred.password_hash !== data.password) {
+    // Mismo mensaje y mismo coste en CPU tanto si falla el usuario como la
+    // contraseña: si saliéramos antes aquí, el tiempo de respuesta revelaría
+    // qué usernames existen.
+    if (!cred) {
+      await dummyVerify();
       throw new Error("Usuario o contraseña incorrectos");
+    }
+
+    const { ok, needsUpgrade } = await verifyPassword(data.password, cred.password_hash);
+    if (!ok) throw new Error("Usuario o contraseña incorrectos");
+
+    // La contraseña era de las guardadas en texto plano (o con menos
+    // iteraciones): ya sabemos que es correcta, así que la re-guardamos hasheada.
+    // Si esto falla no bloqueamos el login — se reintentará en el siguiente.
+    if (needsUpgrade) {
+      try {
+        await db
+          .from("business_access_credentials")
+          .update({ password_hash: await hashPassword(data.password) })
+          .eq("id", cred.id);
+      } catch (err) {
+        console.warn("No se pudo migrar la contraseña a hash:", err);
+      }
     }
 
     const business = cred.business as unknown as Business;
@@ -1360,21 +1379,19 @@ export const updateBusinessCredentialsFn = createServerFn({ method: "POST" })
       .eq("business_id", data.businessId)
       .maybeSingle();
 
+    // La contraseña en claro no se guarda nunca: solo su hash.
+    const password_hash = await hashPassword(data.password);
+
     if (existing) {
-      // Actualizar
       await db
         .from("business_access_credentials")
-        .update({
-          username: data.username,
-          password_hash: data.password, // TODO: hash con bcrypt
-        })
+        .update({ username: data.username, password_hash })
         .eq("business_id", data.businessId);
     } else {
-      // Crear
       await db.from("business_access_credentials").insert({
         business_id: data.businessId,
         username: data.username,
-        password_hash: data.password, // TODO: hash con bcrypt
+        password_hash,
       });
     }
 
