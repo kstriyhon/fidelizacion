@@ -30,3 +30,7 @@ revoke select (
 -- Comprobación sugerida tras aplicarla (debe dar "permission denied"):
 --   curl "$URL/rest/v1/loyalty_programs?select=google_wallet_sa_private_key" \
 --     -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY"
+
+-- ⚠️ ESTA MIGRACIÓN NO SURTIÓ EFECTO. Un REVOKE por columnas no recorta el
+-- GRANT de tabla que Supabase concede a anon/authenticated, así que las
+-- columnas siguieron siendo legibles. La corrige la 0017 — aplica esa.
