@@ -42,7 +42,6 @@ import {
   uploadLogoFn,
   setBusinessLocationFn,
   createProgramFn,
-  updateProgramAccessCredentialsFn,
   updateBusinessCredentialsFn,
   type SwitchableBusiness,
 } from "@/lib/loyaltyActions";
@@ -1839,116 +1838,6 @@ function StampMessageEditor({ program, reload }: { program: Program; reload: () 
 // ---------------------------------------------------------------------------
 // Configurar credenciales de Google Wallet para el programa
 // ---------------------------------------------------------------------------
-function ProgramCredentialsDialog({
-  program,
-  open,
-  onClose,
-  reload,
-}: {
-  program: Program;
-  open: boolean;
-  onClose: () => void;
-  reload: () => void;
-}) {
-  const [username, setUsername] = useState(program.access_username ?? "");
-  const [password, setPassword] = useState(program.access_password ?? "");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setUsername(program.access_username ?? "");
-      setPassword(program.access_password ?? "");
-    }
-  }, [open, program]);
-
-  async function save() {
-    if (username.trim().length < 3) {
-      toast.error("El usuario debe tener al menos 3 caracteres");
-      return;
-    }
-    if (password.trim().length < 6) {
-      toast.error("La contraseña debe tener al menos 6 caracteres");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const token = await getAccessToken();
-      await updateProgramAccessCredentialsFn({
-        data: {
-          token,
-          programId: program.id,
-          access_username: username.trim() || null,
-          access_password: password.trim() || null,
-        },
-      });
-      toast.success("Credenciales guardadas para este programa.");
-      onClose();
-      reload();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Settings className="h-5 w-5 text-primary" /> Credenciales de acceso
-          </DialogTitle>
-          <DialogDescription>
-            Usuario y contraseña para acceder al panel de este programa.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="rounded-lg bg-blue-500/10 p-3 text-xs text-blue-700 dark:text-blue-400">
-          💡 Las credenciales de Google Wallet se manejan globalmente. Aquí configuras solo el usuario y contraseña para acceder al panel.
-        </div>
-
-        <div className="grid gap-3">
-          <div className="grid gap-1.5">
-            <Label htmlFor="username">Nombre de usuario</Label>
-            <Input
-              id="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="ej: admin_Uruguay"
-              disabled={saving}
-              maxLength={50}
-            />
-            <p className="text-xs text-muted-foreground">Mínimo 3 caracteres</p>
-          </div>
-
-          <div className="grid gap-1.5">
-            <Label htmlFor="password">Contraseña</Label>
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              disabled={saving}
-              maxLength={100}
-            />
-            <p className="text-xs text-muted-foreground">Mínimo 6 caracteres</p>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancelar
-          </Button>
-          <Button onClick={save} disabled={saving || !username || !password}>
-            {saving ? "Guardando…" : "Guardar credenciales"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // Configurar credenciales de acceso del negocio
 // ---------------------------------------------------------------------------

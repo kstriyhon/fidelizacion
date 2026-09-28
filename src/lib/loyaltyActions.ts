@@ -7,6 +7,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import type { Business, Member, Program, Plan, Subscription, Invoice } from "./data";
+import { PROGRAM_CLIENT_COLUMNS } from "./data";
 import { getSupabaseAdmin } from "./supabaseAdmin.server";
 import {
   requireUser,
@@ -156,9 +157,12 @@ async function buildDashboard(
 }> {
   if (!business) return { business: null, programs: [], members: [], switchable };
 
+  // Sin "*": esto se devuelve al navegador. El cliente service_role se salta
+  // cualquier permiso de columna de la base, así que aquí la lista explícita es
+  // lo único que impide que las credenciales de Wallet salgan de servidor.
   const { data: programs } = await db
     .from("loyalty_programs")
-    .select("*")
+    .select(PROGRAM_CLIENT_COLUMNS)
     .eq("business_id", business.id)
     .order("created_at");
 
@@ -269,7 +273,7 @@ export const adminListFn = createServerFn({ method: "POST" })
     const db = getSupabaseAdmin();
     const [{ data: businesses }, { data: programs }, { data: members }] = await Promise.all([
       db.from("loyalty_businesses").select("*").order("created_at"),
-      db.from("loyalty_programs").select("*"),
+      db.from("loyalty_programs").select(PROGRAM_CLIENT_COLUMNS),
       db.from("loyalty_members").select("*"),
     ]);
     return {
@@ -294,7 +298,7 @@ export const adminGetBusinessFn = createServerFn({ method: "POST" })
 
     const { data: programs } = await db
       .from("loyalty_programs")
-      .select("*")
+      .select(PROGRAM_CLIENT_COLUMNS)
       .eq("business_id", data.businessId)
       .order("created_at");
 
@@ -635,31 +639,6 @@ export const updateWelcomeMessageFn = createServerFn({ method: "POST" })
   });
 
 /** Actualiza las credenciales de acceso para un programa. Solo admin. */
-export const updateProgramAccessCredentialsFn = createServerFn({ method: "POST" })
-  .validator(
-    z.object({
-      token: z.string(),
-      programId: z.string().uuid(),
-      access_username: z.string().trim().min(3).max(50).nullable(),
-      access_password: z.string().trim().min(6).max(100).nullable(),
-    }),
-  )
-  .handler(async ({ data }) => {
-    await requireAdmin(data.token);
-    const db = getSupabaseAdmin();
-
-    const update: Record<string, unknown> = {};
-    if (data.access_username !== undefined) {
-      update.access_username = data.access_username || null;
-    }
-    if (data.access_password !== undefined) {
-      update.access_password = data.access_password || null;
-    }
-
-    const { error } = await db.from("loyalty_programs").update(update).eq("id", data.programId);
-    if (error) throw new Error(error.message);
-    return { ok: true };
-  });
 
 /** (Re)aprovisiona la LoyaltyClass del programa en Google Wallet. */
 export const provisionProgramFn = createServerFn({ method: "POST" })

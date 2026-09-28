@@ -31,10 +31,11 @@ export type Program = {
   /** Mensaje de bienvenida al inscribirse. null = por defecto. Vars: {nombre} {negocio} */
   welcome_message: string | null;
   created_at: string;
-  // Credenciales de acceso al panel para este programa.
-  // Usuario y contraseña para autenticación en el dashboard del programa.
-  access_username: string | null;
-  access_password: string | null;
+  updated_at: string;
+  // Aquí estaban access_username/access_password, credenciales POR PROGRAMA que
+  // se guardaban en texto plano y viajaban al navegador. Nunca se usaron para
+  // autenticar a nadie — su diálogo no llegó a renderizarse — y quedaron
+  // superseded por business_access_credentials + /p/{slug}. Ver migración 0016.
 };
 
 export type Member = {
@@ -102,3 +103,17 @@ export type Invoice = {
 
 /** Programa con su comercio (join usado en las páginas públicas y de servidor). */
 export type ProgramWithBusiness = Program & { business: Business };
+
+/**
+ * Columnas de loyalty_programs que pueden viajar al navegador.
+ *
+ * Se enumeran a mano en vez de usar "*" porque la tabla guarda tambien
+ * google_wallet_sa_private_key, google_wallet_sa_email, google_wallet_issuer_id,
+ * access_username y access_password. Con "*" esas columnas acaban en el cliente
+ * en cuanto alguien las configure desde el panel.
+ *
+ * Quien necesite las credenciales de Wallet (solo wallet/config.server.ts) debe
+ * pedirlas explicitamente con su propia consulta de servidor.
+ */
+export const PROGRAM_CLIENT_COLUMNS =
+  "id,business_id,name,stamps_required,reward_description,active,wallet_class_id,stamp_message,welcome_message,created_at,updated_at";

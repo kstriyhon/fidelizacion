@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Eye, EyeOff } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { Business, Program } from "@/lib/data";
+import { PROGRAM_CLIENT_COLUMNS } from "@/lib/data";
 import { authenticateBusinessFn } from "@/lib/loyaltyActions";
 import { saveBusinessSession } from "@/lib/businessSession";
 import { Button } from "@/components/ui/button";
@@ -20,9 +21,11 @@ export const Route = createFileRoute("/p/$slug")({
 
     if (!business) throw notFound();
 
+    // Página PÚBLICA leída con la anon key: nunca "*". Ver el comentario de
+    // PROGRAM_CLIENT_COLUMNS — la tabla guarda credenciales de Wallet.
     const { data: programs } = await supabase
       .from("loyalty_programs")
-      .select("*")
+      .select(PROGRAM_CLIENT_COLUMNS)
       .eq("business_id", business.id)
       .eq("active", true)
       .limit(1);

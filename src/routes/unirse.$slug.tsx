@@ -5,6 +5,7 @@ import { Wallet, CheckCircle2 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 import type { Business, Member, Program } from "@/lib/data";
+import { PROGRAM_CLIENT_COLUMNS } from "@/lib/data";
 import { enrollMemberFn } from "@/lib/loyaltyActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,9 +21,12 @@ export const Route = createFileRoute("/unirse/$slug")({
       .eq("slug", params.slug)
       .maybeSingle();
     if (!business) throw notFound();
+    // Página PÚBLICA leída con la anon key: nunca "*". La tabla guarda las
+    // credenciales de Google Wallet del programa, y la RLS filtra filas, no
+    // columnas — con "*" viajarían al navegador de cualquier visitante.
     const { data: programs } = await supabase
       .from("loyalty_programs")
-      .select("*")
+      .select(PROGRAM_CLIENT_COLUMNS)
       .eq("business_id", business.id)
       .eq("active", true)
       .order("created_at");
