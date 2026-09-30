@@ -12,7 +12,16 @@ if (!SERVICE_ROLE_KEY) {
   } catch (e) {}
 }
 
-const SUPABASE_URL = "https://zkecrbagxwewtubnusls.supabase.co";
+// La URL se lee de src/lib/supabaseCredentials.ts, que es la que usa la app.
+// Antes estaba escrita a mano aquí y se quedó apuntando a un proyecto que ya no
+// existe, así que el bucket se creó en el sitio equivocado y las subidas de
+// logo fallaban con "Bucket not found".
+const SUPABASE_URL = (() => {
+  const src = readFileSync("src/lib/supabaseCredentials.ts", "utf-8");
+  const m = src.match(/SUPABASE_URL\s*=\s*"([^"]+)"/);
+  if (!m) throw new Error("No se pudo leer SUPABASE_URL de src/lib/supabaseCredentials.ts");
+  return m[1];
+})();
 
 if (!SERVICE_ROLE_KEY) {
   console.error("❌ SUPABASE_SERVICE_ROLE_KEY no encontrada");
@@ -44,20 +53,25 @@ if (error) {
   console.log(`   Formatos: PNG, JPEG, WebP`);
 }
 
-// Ahora habilitar políticas de acceso público para que la app pueda subir
-console.log("\n🔐 Configurando políticas de Storage...\n");
+// Aquí había una llamada a db.storage.from("logos").updateBucket(), que no
+// existe en la librería y hacía reventar el script DESPUÉS de haber creado el
+// bucket — dejando la impresión de que había fallado todo.
+//
+// No hace falta: el bucket ya se crea con public: true arriba, que es lo único
+// que necesita getPublicUrl() para que el logo se vea en la tarjeta de Wallet.
+// Las subidas van con service_role desde el servidor, que se salta las
+// políticas por diseño.
 
-// Política para que cualquiera pueda leer (descarga de logos)
-const { error: policyError1 } = await db.storage.from("logos").updateBucket({
-  public: true,
-});
-
-if (policyError1) {
-  console.error("⚠️  Error al configurar permisos:", policyError1.message);
-} else {
-  console.log("✅ Políticas configuradas");
-  console.log("   • Lectura pública: habilitada");
-  console.log("   • La app (con service_role) puede subir archivos");
+// Comprobación real en vez de darlo por hecho.
+const { data: buckets, error: listErr } = await db.storage.listBuckets();
+if (listErr) {
+  console.error("⚠️  No se pudo verificar:", listErr.message);
+  process.exit(1);
 }
-
-console.log("\n🎉 Storage listo para logos");
+const logos = buckets.find((b) => b.name === "logos");
+if (!logos) {
+  console.error("❌ El bucket 'logos' NO aparece tras crearlo.");
+  process.exit(1);
+}
+console.log(`\n🎉 Verificado: bucket 'logos' existe, público=${logos.public}`);
+console.log(`   Proyecto: ${SUPABASE_URL}`);
