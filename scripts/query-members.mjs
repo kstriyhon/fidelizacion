@@ -1,20 +1,11 @@
 #!/usr/bin/env node
 
-import { createClient } from "@supabase/supabase-js";
-import { readFileSync } from "fs";
 
-let SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!SERVICE_ROLE_KEY) {
-  try {
-    const devVars = readFileSync(".dev.vars", "utf-8");
-    const match = devVars.match(/SUPABASE_SERVICE_ROLE_KEY=(.+)/);
-    SERVICE_ROLE_KEY = match ? match[1].trim() : null;
-  } catch (e) {}
-}
 
-const SUPABASE_URL = "https://zkecrbagxwewtubnusls.supabase.co";
 
-const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+import { db as conectar, anunciarProyecto } from "./_supabase.mjs";
+const db = conectar();
+anunciarProyecto();
 
 // Query simple
 const { data, error, count } = await db

@@ -1,61 +1,59 @@
 #!/usr/bin/env node
 
-import { createClient } from "@supabase/supabase-js";
-import { readFileSync } from "fs";
+// Lista todos los clientes agrupados por negocio.
+//
+// Ojo con el esquema: loyalty_members NO tiene business_id. Cuelga de
+// program_id, y es el programa el que pertenece a un negocio:
+//   loyalty_members.program_id -> loyalty_programs.business_id -> loyalty_businesses
+//
+// Este script pedía antes las columnas `name` y `business_id`, que no existen
+// en esa tabla (son `full_name` y nada), así que la consulta fallaba y
+// mostraba "Total: null" sin decir por qué.
 
-let SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!SERVICE_ROLE_KEY) {
-  try {
-    const devVars = readFileSync(".dev.vars", "utf-8");
-    const match = devVars.match(/SUPABASE_SERVICE_ROLE_KEY=(.+)/);
-    SERVICE_ROLE_KEY = match ? match[1].trim() : null;
-  } catch (e) {}
-}
+import { db as conectar, anunciarProyecto } from "./_supabase.mjs";
+const db = conectar();
+anunciarProyecto();
 
-const SUPABASE_URL = "https://zkecrbagxwewtubnusls.supabase.co";
+const { data: members, count, error } = await db
+  .from("loyalty_members")
+  .select("id, full_name, email, phone, program_id, enrolled_at", { count: "exact" })
+  .order("enrolled_at", { ascending: false });
 
-if (!SERVICE_ROLE_KEY) {
-  console.error("❌ SUPABASE_SERVICE_ROLE_KEY no encontrada");
+if (error) {
+  console.error("❌ Error al consultar clientes:", error.message);
   process.exit(1);
 }
 
-const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+console.log(`📋 Total de clientes: ${count}\n`);
 
-// Obtener todos los miembros sin filtro
-const { data: allMembers, count } = await db
-  .from("loyalty_members")
-  .select("id, name, email, phone, business_id, created_at", { count: "exact" });
+// Programa -> negocio, en una sola consulta en vez de una por cliente.
+const { data: programs } = await db.from("loyalty_programs").select("id, name, business_id");
+const { data: businesses } = await db.from("loyalty_businesses").select("id, name");
 
-console.log(`📋 Total de miembros: ${count}\n`);
-
-// Agrupar por business_id
-const byBusiness = {};
-for (const m of allMembers || []) {
-  if (!byBusiness[m.business_id]) {
-    byBusiness[m.business_id] = [];
-  }
-  byBusiness[m.business_id].push(m);
+const negocioDePrograma = new Map();
+for (const p of programs ?? []) {
+  const negocio = (businesses ?? []).find((b) => b.id === p.business_id);
+  negocioDePrograma.set(p.id, negocio?.name ?? `(negocio ${p.business_id})`);
 }
 
-// Obtener nombres de negocios
-for (const businessId of Object.keys(byBusiness)) {
-  const { data: business } = await db
-    .from("loyalty_businesses")
-    .select("name")
-    .eq("id", businessId)
-    .single();
-
-  const businessName = business?.name || `(ID: ${businessId})`;
-  const members = byBusiness[businessId];
-
-  console.log(`\n📦 ${businessName}: ${members.length} clientes`);
-  for (const m of members.slice(0, 15)) {
-    console.log(`   • ${m.name || "(sin nombre)"} — ${m.email || m.phone || "sin contacto"}`);
-  }
-  if (members.length > 15) {
-    console.log(`   ... y ${members.length - 15} más`);
-  }
+const porNegocio = new Map();
+for (const m of members ?? []) {
+  const negocio = negocioDePrograma.get(m.program_id) ?? "(programa desconocido)";
+  if (!porNegocio.has(negocio)) porNegocio.set(negocio, []);
+  porNegocio.get(negocio).push(m);
 }
 
-console.log(`\n\nPara eliminar clientes de un negocio específico:`);
-console.log(`  node scripts/delete-business-members.mjs <business_id>\n`);
+if (porNegocio.size === 0) {
+  console.log("   (sin clientes inscritos)");
+}
+
+for (const [negocio, lista] of porNegocio) {
+  console.log(`\n📦 ${negocio}: ${lista.length} cliente(s)`);
+  for (const m of lista.slice(0, 15)) {
+    const contacto = m.phone || m.email || "sin contacto";
+    console.log(`   • ${m.full_name || "(sin nombre)"} — ${contacto}`);
+  }
+  if (lista.length > 15) console.log(`   ... y ${lista.length - 15} más`);
+}
+
+console.log("");
