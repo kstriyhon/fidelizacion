@@ -90,6 +90,30 @@ curl -sS "https://mpckfsufmznziqrhrxai.supabase.co/rest/v1/loyalty_businesses?se
 
 ---
 
+## Alta de comercios (self-service)
+
+Página pública **`/planes`** con los precios reales de la BD. El comercio elige plan →
+`/login?plan=…&nuevo=true` (abre en registro) → `Onboarding` en `/comercio` crea negocio,
+programa **y suscripción**.
+
+⚠️ `createBusinessFn` **debe** crear la suscripción. Sin ella `validatePlanLimits` bloquea
+la inscripción de clientes, y el fallo solo aparece cuando un cliente final escanea el QR:
+estuvo quince días bloqueando inscripciones sin que nada avisara.
+
+**No hay cobro.** Cualquiera puede registrarse y queda activo con el plan que elija; las
+facturas se generan y marcan pagadas a mano desde `/admin`.
+
+## Panel en móvil
+
+La mayoría de comercios lo usan desde el celular. Decisiones tomadas midiendo en 375px:
+
+- El QR de inscripción va **plegado** arriba. Desplegado ocupa ~400px y empujaba la lista
+  de clientes fuera de la primera pantalla; dar sellos es lo que más se hace.
+- Las etiquetas de los botones **no se ocultan** en pantalla estrecha. Antes lo hacían para
+  caber en una línea y quedaban iconos sin nombre accesible.
+- Objetivos táctiles de 44px en móvil (`h-11 ... sm:h-9`).
+- El bloque **"Tu plan"** muestra plan, precio y consumo con aviso al 80%.
+
 ## Pendiente
 
 1. **Ocultar al cliente** de `/p/{slug}` los botones "Editar", "Nuevo programa" y
