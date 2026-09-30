@@ -435,6 +435,34 @@ export const createBusinessFn = createServerFn({ method: "POST" })
       .single();
     if (pe || !prog) throw new Error(`No se pudo crear el programa: ${pe?.message ?? ""}`);
 
+    // Suscripción por defecto, al plan activo más barato.
+    //
+    // Sin esto el comercio nace SIN suscripción, y validatePlanLimits bloquea
+    // la inscripción de clientes: su QR falla en el primer escaneo con "Negocio
+    // no tiene suscripción activa" y nada avisa al administrador. Paso de
+    // verdad — estuvo quince días bloqueando inscripciones sin que se notara.
+    //
+    // Best-effort: si algo falla aquí no se tira el alta del comercio, que ya
+    // está creado. Se avisa en el log y se puede arreglar desde el panel.
+    try {
+      const { data: plan } = await db
+        .from("loyalty_plans")
+        .select("id")
+        .eq("active", true)
+        .order("price_cop")
+        .limit(1)
+        .maybeSingle();
+      if (plan) {
+        await db
+          .from("loyalty_subscriptions")
+          .insert({ business_id: biz.id, plan_id: plan.id, status: "active" });
+      } else {
+        console.warn(`createBusinessFn: no hay planes activos; ${biz.id} queda sin suscripción.`);
+      }
+    } catch (err) {
+      console.warn(`createBusinessFn: no se pudo crear la suscripción de ${biz.id}:`, err);
+    }
+
     try {
       const cfg = getWalletConfigForProgram(prog as Program);
       const res = await ensureProgramClass(prog as Program, biz as Business, cfg);
@@ -1258,7 +1286,18 @@ async function validatePlanLimits(
     .maybeSingle();
 
   if (!sub) {
-    return { ok: false, message: "Negocio no tiene suscripción activa" };
+    // Este mensaje lo lee el CLIENTE FINAL al escanear el QR, alguien que no
+    // puede hacer nada con "no tiene suscripción activa". Se le dice algo que
+    // sí puede accionar, y el detalle técnico va al log del servidor para quien
+    // administra la plataforma.
+    console.warn(
+      `validatePlanLimits: el negocio ${businessId} no tiene suscripción activa; ` +
+        `se está bloqueando ${resource}. Créale una en loyalty_subscriptions.`,
+    );
+    return {
+      ok: false,
+      message: "Este comercio aún no está activo. Avísale al negocio para que lo habilite.",
+    };
   }
 
   const plan = sub.plan as unknown as Plan;
