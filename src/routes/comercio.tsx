@@ -629,7 +629,21 @@ export function Dashboard({
               </p>
               {enrollUrl ? (
                 <div className="mt-3 grid place-items-center rounded-lg bg-white p-3">
-                  <QRCodeSVG value={enrollUrl} size={160} />
+                  {/* Con logo se sube la corrección de errores a "H" (recupera
+                      hasta un 30% del código). El logo tapa módulos: sin ese
+                      margen el QR dejaría de leerse, y un QR bonito que no
+                      escanea es peor que uno feo que sí.
+                      32 de 160 px = 20% del ancho, dentro de lo que "H" tolera. */}
+                  <QRCodeSVG
+                    value={enrollUrl}
+                    size={160}
+                    level={business.logo_url ? "H" : "M"}
+                    imageSettings={
+                      business.logo_url
+                        ? { src: business.logo_url, height: 32, width: 32, excavate: true }
+                        : undefined
+                    }
+                  />
                 </div>
               ) : null}
               <div className="mt-3 flex gap-2">
