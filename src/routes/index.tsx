@@ -36,9 +36,14 @@ function Landing() {
             sin desarrollar una app.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <Link to="/comercio">
+            <Link to="/planes">
               <Button size="lg" className="gap-2">
                 Crear mi tarjeta <ArrowRight className="h-4 w-4" />
+              </Button>
+            </Link>
+            <Link to="/planes">
+              <Button size="lg" variant="outline">
+                Ver planes y precios
               </Button>
             </Link>
           </div>

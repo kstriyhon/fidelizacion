@@ -86,6 +86,9 @@ function ComercioPanel() {
 
   const programParam = (search as { program?: string }).program;
   const businessParam = (search as { business?: string }).business;
+  // Plan elegido en /planes. Viaja por la URL hasta el alta; el servidor lo
+  // vuelve a validar contra la BD, así que aquí es solo comodidad.
+  const planParam = (search as { plan?: string }).plan;
 
   // Con sesión de negocio se muestra el usuario; si no, el email de Supabase.
   const email = businessSession ? businessSession.username : (session?.user.email ?? "");
@@ -98,8 +101,13 @@ function ComercioPanel() {
 
   useEffect(() => {
     if (businessSession) return;
-    if (session === null) navigate({ to: "/login" });
-  }, [session, businessSession, navigate]);
+    if (session === null) {
+      // Se arrastra el plan elegido en /planes hasta el login. Sin esto, quien
+      // llega desde la página de precios sin cuenta pierde su elección al
+      // rebotar, y acaba con el plan más barato sin enterarse.
+      navigate({ to: "/login", search: planParam ? { plan: planParam, nuevo: true } : {} });
+    }
+  }, [session, businessSession, navigate, planParam]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -160,7 +168,7 @@ function ComercioPanel() {
         </div>
       );
     }
-    return <Onboarding email={email} onCreated={load} />;
+    return <Onboarding email={email} onCreated={load} planId={planParam} />;
   }
 
   return (
@@ -186,7 +194,16 @@ function ComercioPanel() {
 // ---------------------------------------------------------------------------
 // Onboarding: crear comercio + primer programa
 // ---------------------------------------------------------------------------
-export function Onboarding({ email, onCreated }: { email: string; onCreated: () => void }) {
+export function Onboarding({
+  email,
+  onCreated,
+  planId,
+}: {
+  email: string;
+  onCreated: () => void;
+  /** Plan elegido en /planes. Sin él, el servidor asigna el más barato. */
+  planId?: string;
+}) {
   const [name, setName] = useState("");
   const [color, setColor] = useState("#7c3aed");
   const [programName, setProgramName] = useState("Tarjeta de sellos");
@@ -208,6 +225,7 @@ export function Onboarding({ email, onCreated }: { email: string; onCreated: () 
           programName: programName.trim() || "Tarjeta de sellos",
           stamps_required: required,
           reward_description: reward.trim() || "Un producto gratis",
+          planId,
         },
       });
       toast.success("¡Negocio creado!");

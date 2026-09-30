@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PlanesRouteImport } from './routes/planes'
 import { Route as NuevaClaveRouteImport } from './routes/nueva-clave'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ComercioRouteImport } from './routes/comercio'
@@ -17,6 +18,11 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as UnirseSlugRouteImport } from './routes/unirse.$slug'
 import { Route as PSlugRouteImport } from './routes/p.$slug'
 
+const PlanesRoute = PlanesRouteImport.update({
+  id: '/planes',
+  path: '/planes',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const NuevaClaveRoute = NuevaClaveRouteImport.update({
   id: '/nueva-clave',
   path: '/nueva-clave',
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/comercio': typeof ComercioRoute
   '/login': typeof LoginRoute
   '/nueva-clave': typeof NuevaClaveRoute
+  '/planes': typeof PlanesRoute
   '/p/$slug': typeof PSlugRoute
   '/unirse/$slug': typeof UnirseSlugRoute
 }
@@ -68,6 +75,7 @@ export interface FileRoutesByTo {
   '/comercio': typeof ComercioRoute
   '/login': typeof LoginRoute
   '/nueva-clave': typeof NuevaClaveRoute
+  '/planes': typeof PlanesRoute
   '/p/$slug': typeof PSlugRoute
   '/unirse/$slug': typeof UnirseSlugRoute
 }
@@ -78,6 +86,7 @@ export interface FileRoutesById {
   '/comercio': typeof ComercioRoute
   '/login': typeof LoginRoute
   '/nueva-clave': typeof NuevaClaveRoute
+  '/planes': typeof PlanesRoute
   '/p/$slug': typeof PSlugRoute
   '/unirse/$slug': typeof UnirseSlugRoute
 }
@@ -89,6 +98,7 @@ export interface FileRouteTypes {
     | '/comercio'
     | '/login'
     | '/nueva-clave'
+    | '/planes'
     | '/p/$slug'
     | '/unirse/$slug'
   fileRoutesByTo: FileRoutesByTo
@@ -98,6 +108,7 @@ export interface FileRouteTypes {
     | '/comercio'
     | '/login'
     | '/nueva-clave'
+    | '/planes'
     | '/p/$slug'
     | '/unirse/$slug'
   id:
@@ -107,6 +118,7 @@ export interface FileRouteTypes {
     | '/comercio'
     | '/login'
     | '/nueva-clave'
+    | '/planes'
     | '/p/$slug'
     | '/unirse/$slug'
   fileRoutesById: FileRoutesById
@@ -117,12 +129,20 @@ export interface RootRouteChildren {
   ComercioRoute: typeof ComercioRoute
   LoginRoute: typeof LoginRoute
   NuevaClaveRoute: typeof NuevaClaveRoute
+  PlanesRoute: typeof PlanesRoute
   PSlugRoute: typeof PSlugRoute
   UnirseSlugRoute: typeof UnirseSlugRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/planes': {
+      id: '/planes'
+      path: '/planes'
+      fullPath: '/planes'
+      preLoaderRoute: typeof PlanesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/nueva-clave': {
       id: '/nueva-clave'
       path: '/nueva-clave'
@@ -181,6 +201,7 @@ const rootRouteChildren: RootRouteChildren = {
   ComercioRoute: ComercioRoute,
   LoginRoute: LoginRoute,
   NuevaClaveRoute: NuevaClaveRoute,
+  PlanesRoute: PlanesRoute,
   PSlugRoute: PSlugRoute,
   UnirseSlugRoute: UnirseSlugRoute,
 }

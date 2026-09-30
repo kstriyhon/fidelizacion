@@ -409,6 +409,8 @@ export const createBusinessFn = createServerFn({ method: "POST" })
       programName: z.string().trim().min(1),
       stamps_required: z.number().int().min(1).max(30),
       reward_description: z.string().trim().min(1),
+      /** Plan elegido en /planes. Si no viene, se usa el activo más barato. */
+      planId: z.string().uuid().optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -445,13 +447,32 @@ export const createBusinessFn = createServerFn({ method: "POST" })
     // Best-effort: si algo falla aquí no se tira el alta del comercio, que ya
     // está creado. Se avisa en el log y se puede arreglar desde el panel.
     try {
-      const { data: plan } = await db
-        .from("loyalty_plans")
-        .select("id")
-        .eq("active", true)
-        .order("price_cop")
-        .limit(1)
-        .maybeSingle();
+      // El planId viene del cliente, así que se comprueba contra la BD en vez
+      // de confiar en él: exigimos que exista y esté activo. Si no cuadra, se
+      // cae al más barato en lugar de dejar el comercio sin suscripción.
+      let plan: { id: string } | null = null;
+      if (data.planId) {
+        const { data: elegido } = await db
+          .from("loyalty_plans")
+          .select("id")
+          .eq("id", data.planId)
+          .eq("active", true)
+          .maybeSingle();
+        plan = elegido ?? null;
+        if (!plan) {
+          console.warn(`createBusinessFn: plan ${data.planId} no existe o no está activo.`);
+        }
+      }
+      if (!plan) {
+        const { data: barato } = await db
+          .from("loyalty_plans")
+          .select("id")
+          .eq("active", true)
+          .order("price_cop")
+          .limit(1)
+          .maybeSingle();
+        plan = barato ?? null;
+      }
       if (plan) {
         await db
           .from("loyalty_subscriptions")
@@ -1114,6 +1135,27 @@ export const createProgramFn = createServerFn({ method: "POST" })
 // ===========================================================================
 
 /** Obtener planes disponibles */
+/**
+ * Planes para la página pública de precios. SIN sesión, a diferencia de
+ * listPlansFn: los precios son información comercial que queremos enseñar a
+ * quien todavía no tiene cuenta.
+ *
+ * Devuelve solo lo que se pinta en la página. No usa select("*") para que, si
+ * algún día se añade a loyalty_plans una columna interna (margen, notas,
+ * condiciones), no salga sola a internet.
+ */
+export const listPublicPlansFn = createServerFn({ method: "POST" })
+  .validator(z.object({}).optional())
+  .handler(async () => {
+    const db = getSupabaseAdmin();
+    const { data: plans } = await db
+      .from("loyalty_plans")
+      .select("id,name,price_cop,max_programs,max_members,description")
+      .eq("active", true)
+      .order("price_cop", { ascending: true });
+    return (plans as Plan[]) ?? [];
+  });
+
 export const listPlansFn = createServerFn({ method: "POST" })
   .validator(z.object({ token: z.string() }))
   .handler(async ({ data }) => {

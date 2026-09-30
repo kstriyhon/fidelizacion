@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useSearch, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Stamp, ArrowLeft, MailCheck, Eye, EyeOff } from "lucide-react";
 
@@ -31,7 +31,11 @@ const TITLES: Record<Mode, { title: string; subtitle: string }> = {
 
 function LoginPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<Mode>("in");
+  const search = useSearch({ from: "/login" }) as { plan?: string; nuevo?: boolean };
+
+  // Quien llega desde /planes viene a crear una cuenta, no a iniciar sesión:
+  // abrir en "iniciar sesión" le obliga a buscar el enlace de registro.
+  const [mode, setMode] = useState<Mode>(search.nuevo ? "up" : "in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -68,14 +72,14 @@ function LoginPage() {
     try {
       if (mode === "in") {
         await signIn(email, password);
-        navigate({ to: "/comercio" });
+        navigate({ to: "/comercio", search: search.plan ? { plan: search.plan } : {} });
       } else {
         const { needsConfirmation } = await signUp(email, password);
         if (needsConfirmation) {
           toast.success("Cuenta creada. Revisa tu correo para confirmarla y luego inicia sesión.");
           switchTo("in");
         } else {
-          navigate({ to: "/comercio" });
+          navigate({ to: "/comercio", search: search.plan ? { plan: search.plan } : {} });
         }
       }
     } catch (err) {
