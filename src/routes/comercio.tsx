@@ -172,6 +172,7 @@ function ComercioPanel() {
       members={members}
       email={email}
       reload={load}
+      canManagePrograms={!businessSession}
       switchable={switchable}
       onSwitchBusiness={(id) =>
         // Se quita ?program= al cambiar: los programas son de cada negocio, y
@@ -311,6 +312,7 @@ export function Dashboard({
   onBack,
   switchable = [],
   onSwitchBusiness,
+  canManagePrograms = true,
 }: {
   business: Business;
   programs: Program[];
@@ -323,6 +325,15 @@ export function Dashboard({
   /** Negocios entre los que puede cambiar esta sesión. Vacío = sin selector. */
   switchable?: SwitchableBusiness[];
   onSwitchBusiness?: (businessId: string) => void;
+  /**
+   * false para el comercio que entra por /p/{slug}: oculta lo que define el
+   * trato comercial (editar el programa, crear otro, credenciales).
+   *
+   * Es solo presentación — el servidor ya rechaza esas acciones con
+   * requireProgramOwner y requireAdmin. Aquí se ocultan para que el cliente no
+   * vea botones que le van a dar error.
+   */
+  canManagePrograms?: boolean;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [msgMember, setMsgMember] = useState<Member | null>(null);
@@ -470,7 +481,7 @@ export function Dashboard({
               <p className="text-xs text-muted-foreground mt-1">
                 {selectedProgram ? `${selectedProgram.name} · ${selectedProgram.stamps_required} sellos = ${selectedProgram.reward_description}` : "Sin programa"}
               </p>
-              {selectedProgram ? (
+              {selectedProgram && canManagePrograms ? (
                 <div className="mt-2 flex gap-2">
                   {selectedProgram ? (
                     <>

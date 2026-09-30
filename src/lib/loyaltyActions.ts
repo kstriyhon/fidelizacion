@@ -14,6 +14,7 @@ import {
   requireAdmin,
   requireBusinessAccess,
   requireProgramAccess,
+  requireProgramOwner,
   requireMemberAccess,
   businessIdFromSession,
 } from "./authz.server";
@@ -583,7 +584,7 @@ export const updateProgramFn = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
-    const { businessId } = await requireProgramAccess(data.token, data.programId);
+    const { businessId } = await requireProgramOwner(data.token, data.programId);
     const db = getSupabaseAdmin();
     const { error } = await db
       .from("loyalty_programs")
@@ -644,7 +645,7 @@ export const updateWelcomeMessageFn = createServerFn({ method: "POST" })
 export const provisionProgramFn = createServerFn({ method: "POST" })
   .validator(z.object({ token: z.string(), programId: z.string().uuid() }))
   .handler(async ({ data }) => {
-    await requireProgramAccess(data.token, data.programId);
+    await requireProgramOwner(data.token, data.programId);
     const db = getSupabaseAdmin();
     const { data: program, error: pe } = await db
       .from("loyalty_programs")

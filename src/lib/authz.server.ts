@@ -106,6 +106,28 @@ export async function requireProgramAccess(
   return { ...res, businessId: prog.business_id as string };
 }
 
+/**
+ * Como requireProgramAccess, pero RECHAZA la sesión de negocio: exige cuenta de
+ * Supabase (dueño o admin).
+ *
+ * Para lo que define el trato comercial —cuántos sellos, qué premio— o toca la
+ * infraestructura de Wallet. El comercio gestiona su día a día (sellos, canjes,
+ * mensajes), pero no se cambia a sí mismo las condiciones del programa.
+ *
+ * Ocultar el botón en la UI no basta: las server functions se pueden llamar
+ * directamente, así que el corte tiene que estar aquí.
+ */
+export async function requireProgramOwner(
+  token: string | undefined,
+  programId: string,
+): Promise<Access & { businessId: string }> {
+  const res = await requireProgramAccess(token, programId);
+  if (res.viaBusinessSession) {
+    throw new Error("No autorizado: esto solo lo puede cambiar quien administra la plataforma.");
+  }
+  return res;
+}
+
 /** Igual, resolviendo desde un miembro (para dar sello/canjear/mensaje). */
 export async function requireMemberAccess(
   token: string | undefined,
