@@ -44,6 +44,7 @@ import {
   createProgramFn,
   updateBusinessCredentialsFn,
   type SwitchableBusiness,
+  type PlanUsage,
 } from "@/lib/loyaltyActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,6 +79,7 @@ function ComercioPanel() {
   const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [switchable, setSwitchable] = useState<SwitchableBusiness[]>([]);
+  const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Sesión de negocio (/p/{slug}). Se lee una vez: no cambia durante la vida
@@ -124,6 +126,7 @@ function ComercioPanel() {
       setPrograms(res.programs);
       setMembers(res.members);
       setSwitchable(res.switchable);
+      setPlanUsage(res.planUsage);
       // Si hay parámetro ?program=, usa ese; sino el primero
       const targetProgramId = programParam && res.programs.some((p) => p.id === programParam)
         ? programParam
@@ -180,6 +183,7 @@ function ComercioPanel() {
       members={members}
       email={email}
       reload={load}
+      planUsage={planUsage}
       canManagePrograms={!businessSession}
       switchable={switchable}
       onSwitchBusiness={(id) =>
@@ -331,6 +335,7 @@ export function Dashboard({
   switchable = [],
   onSwitchBusiness,
   canManagePrograms = true,
+  planUsage = null,
 }: {
   business: Business;
   programs: Program[];
@@ -352,6 +357,8 @@ export function Dashboard({
    * vea botones que le van a dar error.
    */
   canManagePrograms?: boolean;
+  /** Plan contratado y consumo. null si el negocio no tiene suscripción. */
+  planUsage?: PlanUsage | null;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [msgMember, setMsgMember] = useState<Member | null>(null);
@@ -361,6 +368,8 @@ export function Dashboard({
   const [scanOpen, setScanOpen] = useState(false);
   const [programEditOpen, setProgramEditOpen] = useState(false);
   const [credentialsOpen, setCredentialsOpen] = useState(false);
+  // El QR de inscripción va plegado en móvil (ver el bloque donde se usa).
+  const [qrAbierto, setQrAbierto] = useState(false);
   const [newProgramOpen, setNewProgramOpen] = useState(false);
   const [inactiveDays, setInactiveDays] = useState(30);
   const [memberFilter, setMemberFilter] = useState<"all" | "new" | "inactive">("all");
@@ -574,7 +583,11 @@ export function Dashboard({
         ) : null}
 
         {/* Métricas */}
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {/* 3 columnas en móvil: con 5 métricas y 2 columnas salían 3 filas, y
+            empujaban el buscador de clientes media pantalla hacia abajo. Dar un
+            sello es lo que más se hace desde el celular, así que lo primero es
+            llegar antes a la lista. */}
+        <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-5">
           <MetricCard label="Clientes" value={metrics.total} />
           <MetricCard label="Nuevos (30d)" value={metrics.nuevos} />
           <MetricCard label="Sellos dados" value={metrics.sellosDados} />
@@ -583,29 +596,95 @@ export function Dashboard({
         </div>
 
         <div className="mt-6 grid gap-6 md:grid-cols-[1fr_320px]">
+          {/* QR de inscripción.
+              Va PRIMERO en el DOM a propósito: en móvil el grid se apila, y
+              antes este bloque quedaba detrás de toda la lista de clientes —
+              a 1.156 px con solo cinco. Con cincuenta habría quedado enterrado,
+              y es la segunda acción más usada del negocio después de dar sellos.
+              En escritorio se recoloca arriba a la derecha con col/row-start,
+              así que el diseño de dos columnas no cambia. */}
+          <div className="md:col-start-2 md:row-start-1">
+            <div className="rounded-xl border bg-card p-4">
+              <h3 className="flex items-center gap-2 text-sm font-semibold">
+                <Stamp className="h-4 w-4 text-primary" /> Inscribe clientes
+              </h3>
+
+              {/* En móvil el QR va plegado: desplegado ocupa casi 400 px y
+                  empujaba la lista de clientes —dar un sello es lo que más se
+                  hace— fuera de la primera pantalla. Plegado ocupa una línea y
+                  queda a un toque, siempre en el mismo sitio por larga que sea
+                  la lista. En escritorio se muestra siempre. */}
+              <Button
+                variant="outline"
+                className="mt-3 h-11 w-full md:hidden"
+                aria-expanded={qrAbierto}
+                onClick={() => setQrAbierto((v) => !v)}
+              >
+                {qrAbierto ? "Ocultar QR" : "Mostrar QR de inscripción"}
+              </Button>
+
+              <div className={qrAbierto ? "block" : "hidden md:block"}>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Que escaneen este QR o abran el enlace para agregar la tarjeta a Google Wallet o Apple Wallet.
+              </p>
+              {enrollUrl ? (
+                <div className="mt-3 grid place-items-center rounded-lg bg-white p-3">
+                  <QRCodeSVG value={enrollUrl} size={160} />
+                </div>
+              ) : null}
+              <div className="mt-3 flex gap-2">
+                <Input readOnly value={enrollUrl} className="text-xs" />
+                <Button
+                  size="icon"
+                  variant="outline"
+                  aria-label="Copiar enlace de inscripción"
+                  title="Copiar enlace"
+                  className="h-11 w-11 shrink-0 sm:h-9 sm:w-9"
+                  onClick={() => {
+                    navigator.clipboard.writeText(enrollUrl);
+                    toast.success("Enlace copiado");
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+              <Link to="/unirse/$slug" params={{ slug: business.slug }} target="_blank">
+                <Button variant="link" size="sm" className="mt-1 px-0">
+                  Abrir página de inscripción →
+                </Button>
+              </Link>
+              </div>
+            </div>
+          </div>
+
           {/* Miembros */}
-          <div>
-            <div className="flex items-center justify-between gap-2">
+          <div className="md:col-start-1 md:row-start-1 md:row-span-2">
+            {/* En móvil el título va arriba y los botones debajo a lo ancho.
+                Antes compartían línea y, para que cupieran, sus etiquetas se
+                ocultaban: quedaban dos iconos sin ningún nombre accesible, así
+                que no había forma de saber qué hacían ni leyéndolos con un
+                lector de pantalla. */}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <h2 className="font-semibold">Clientes ({members.length})</h2>
               <div className="flex gap-2">
                 <Button
                   size="sm"
-                  className="gap-1"
+                  className="h-11 flex-1 gap-1 sm:h-9 sm:flex-none"
                   disabled={!selectedProgram}
                   onClick={() => setScanOpen(true)}
                 >
                   <ScanLine className="h-4 w-4" />
-                  <span className="hidden sm:inline">Escanear QR</span>
+                  Escanear QR
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
-                  className="gap-1"
+                  className="h-11 flex-1 gap-1 sm:h-9 sm:flex-none"
                   disabled={!selectedProgram || programMembers.length === 0}
                   onClick={() => setBroadcastOpen(true)}
                 >
                   <Megaphone className="h-4 w-4" />
-                  <span className="hidden sm:inline">Aviso a todos</span>
+                  Aviso a todos
                 </Button>
                 {birthdayMonth !== null && shownMembers.length > 0 ? (
                   <Button
@@ -759,7 +838,13 @@ export function Dashboard({
                         )}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button size="icon" variant="ghost" title="Más opciones">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              title="Más opciones"
+                              aria-label="Más opciones"
+                              className="h-11 w-11 sm:h-9 sm:w-9"
+                            >
                               <MoreVertical className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -783,39 +868,9 @@ export function Dashboard({
             )}
           </div>
 
-          {/* Inscripción */}
-          <aside className="space-y-4">
-            <div className="rounded-xl border bg-card p-4">
-              <h3 className="flex items-center gap-2 text-sm font-semibold">
-                <Stamp className="h-4 w-4 text-primary" /> Inscribe clientes
-              </h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Que escaneen este QR o abran el enlace para agregar la tarjeta a Google Wallet o Apple Wallet.
-              </p>
-              {enrollUrl ? (
-                <div className="mt-3 grid place-items-center rounded-lg bg-white p-3">
-                  <QRCodeSVG value={enrollUrl} size={160} />
-                </div>
-              ) : null}
-              <div className="mt-3 flex gap-2">
-                <Input readOnly value={enrollUrl} className="text-xs" />
-                <Button
-                  size="icon"
-                  variant="outline"
-                  onClick={() => {
-                    navigator.clipboard.writeText(enrollUrl);
-                    toast.success("Enlace copiado");
-                  }}
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
-              <Link to="/unirse/$slug" params={{ slug: business.slug }} target="_blank">
-                <Button variant="link" size="sm" className="mt-1 px-0">
-                  Abrir página de inscripción →
-                </Button>
-              </Link>
-            </div>
+          {/* Ajustes y configuración: debajo de todo también en móvil. */}
+          <aside className="space-y-4 md:col-start-2 md:row-start-2">
+            {planUsage ? <PlanCard usage={planUsage} /> : null}
 
             <LogoEditor business={business} reload={reload} />
 
@@ -1585,6 +1640,72 @@ function MemberDeleteDialog({
 // ---------------------------------------------------------------------------
 // Subir/cambiar el logo del negocio
 // ---------------------------------------------------------------------------
+/**
+ * Plan contratado y consumo.
+ *
+ * El comercio no tenía forma de saber en qué plan está: había que mirar la base
+ * de datos. Con el alta self-service eso deja de valer — alguien elige
+ * Empresarial, paga, y quiere verlo escrito.
+ *
+ * La barra de consumo además le avisa de que se está quedando corto, que es
+ * justo el momento de subir de plan.
+ */
+function PlanCard({ usage }: { usage: PlanUsage }) {
+  // 999+ es el "ilimitado" de los planes grandes: ahí una barra de progreso no
+  // dice nada, así que no se pinta.
+  const ilimitado = usage.maxMembers >= 999999;
+  const pct = ilimitado ? 0 : Math.min(100, Math.round((usage.members / usage.maxMembers) * 100));
+  const apretado = !ilimitado && pct >= 80;
+
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <h3 className="flex items-center gap-2 text-sm font-semibold">
+        <Gift className="h-4 w-4 text-primary" /> Tu plan
+      </h3>
+
+      <div className="mt-2 flex items-baseline justify-between gap-2">
+        <span className="text-lg font-bold">{usage.planName}</span>
+        <span className="text-xs text-muted-foreground">
+          ${usage.priceCop.toLocaleString("es-CO")} COP/mes
+        </span>
+      </div>
+
+      <div className="mt-3 text-sm">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Clientes</span>
+          <span className={apretado ? "font-semibold text-amber-600" : "font-medium"}>
+            {usage.members.toLocaleString("es-CO")}
+            {ilimitado ? "" : ` de ${usage.maxMembers.toLocaleString("es-CO")}`}
+          </span>
+        </div>
+        {ilimitado ? null : (
+          <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className={`h-full rounded-full ${apretado ? "bg-amber-500" : "bg-primary"}`}
+              style={{ width: `${Math.max(pct, 2)}%` }}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 flex items-center justify-between text-sm">
+        <span className="text-muted-foreground">Programas</span>
+        <span className="font-medium">
+          {usage.programs}
+          {usage.maxPrograms >= 999 ? "" : ` de ${usage.maxPrograms}`}
+        </span>
+      </div>
+
+      {apretado ? (
+        <p className="mt-3 rounded-lg bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-400">
+          Te quedan pocos cupos de cliente. Habla con quien administra tu programa para ampliar
+          el plan.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function LogoEditor({ business, reload }: { business: Business; reload: () => void }) {
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);

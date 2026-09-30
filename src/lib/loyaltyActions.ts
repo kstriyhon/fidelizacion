@@ -138,6 +138,57 @@ function assertActive(business: Business) {
 /** Entrada del selector de negocios del panel. */
 export type SwitchableBusiness = { id: string; name: string };
 
+/** Plan del negocio y consumo actual, para el bloque de plan del panel. */
+export type PlanUsage = {
+  planName: string;
+  priceCop: number;
+  members: number;
+  maxMembers: number;
+  programs: number;
+  maxPrograms: number;
+};
+
+/**
+ * Plan contratado y cuánto se lleva consumido.
+ *
+ * Hasta ahora no había forma de ver esto desde la aplicación: había que
+ * consultar la base. Con el alta self-service eso no se sostiene — alguien
+ * elige Empresarial, paga, y no tiene dónde comprobar que está donde cree.
+ */
+async function loadPlanUsage(
+  db: ReturnType<typeof getSupabaseAdmin>,
+  businessId: string,
+  programs: Program[],
+): Promise<PlanUsage | null> {
+  const { data: sub } = await db
+    .from("loyalty_subscriptions")
+    .select("plan:loyalty_plans(name,price_cop,max_members,max_programs)")
+    .eq("business_id", businessId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  const plan = sub?.plan as unknown as Plan | undefined;
+  if (!plan) return null;
+
+  let members = 0;
+  if (programs.length > 0) {
+    const { count } = await db
+      .from("loyalty_members")
+      .select("id", { count: "exact", head: true })
+      .in("program_id", programs.map((p) => p.id));
+    members = count ?? 0;
+  }
+
+  return {
+    planName: plan.name,
+    priceCop: plan.price_cop,
+    members,
+    maxMembers: plan.max_members,
+    programs: programs.length,
+    maxPrograms: plan.max_programs,
+  };
+}
+
 /**
  * Arma la respuesta del panel a partir del negocio ya resuelto Y AUTORIZADO.
  *
@@ -155,8 +206,11 @@ async function buildDashboard(
   programs: Program[];
   members: Member[];
   switchable: SwitchableBusiness[];
+  planUsage: PlanUsage | null;
 }> {
-  if (!business) return { business: null, programs: [], members: [], switchable };
+  if (!business) {
+    return { business: null, programs: [], members: [], switchable, planUsage: null };
+  }
 
   // Sin "*": esto se devuelve al navegador. El cliente service_role se salta
   // cualquier permiso de columna de la base, así que aquí la lista explícita es
@@ -178,11 +232,13 @@ async function buildDashboard(
     members = (mem as Member[]) ?? [];
   }
 
+  const lista = (programs as Program[]) ?? [];
   return {
     business: business as Business,
-    programs: (programs as Program[]) ?? [],
+    programs: lista,
     members,
     switchable,
+    planUsage: await loadPlanUsage(db, business.id, lista),
   };
 }
 
