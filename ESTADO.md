@@ -70,8 +70,14 @@ el cliente necesite, va en los dos sitios o `/unirse/{slug}` deja de cargar.
 **Hashing: PBKDF2, no bcrypt.** bcrypt es un binding nativo y no carga en Cloudflare
 Workers — compila en local y revienta en producción. Ver `src/lib/password.server.ts`.
 
-**`npx tsc --noEmit` da 13 errores preexistentes** sobre Google Wallet y el tipo `Program`.
-Es la baseline: si salen 13, no has roto nada.
+**`npx tsc --noEmit` da 14 errores preexistentes** sobre Google Wallet y el tipo `Program`.
+Es la baseline: si salen 14, no has roto nada.
+
+Todos son la misma causa: `getWalletConfigForProgram(program)` recibe un `Program` cuyo
+tipo no declara las columnas `google_wallet_*`. **En ejecución funciona** —esas rutas cargan
+el programa con `select("*")`—, es el tipo el que miente. Cada llamada nueva suma un error
+más. Conviene limpiarlo algún día: mientras siga así, esos 14 son ruido que puede tapar un
+error de verdad.
 
 ---
 
@@ -113,6 +119,35 @@ La mayoría de comercios lo usan desde el celular. Decisiones tomadas midiendo e
   caber en una línea y quedaban iconos sin nombre accesible.
 - Objetivos táctiles de 44px en móvil (`h-11 ... sm:h-9`).
 - El bloque **"Tu plan"** muestra plan, precio y consumo con aviso al 80%.
+
+## Historial de sellos
+
+**Ya existía y nadie lo sabía:** `loyalty_stamp_events` guarda cada sello y cada canje
+desde la migración `0001`, y `addStampFn`/`redeemRewardFn` siempre han escrito ahí. Al
+añadir la vista, el historial de los sellos ya dados apareció entero — no empezó a contar
+desde cero.
+
+En el panel, la línea "N/M sellos · P premios" de cada cliente despliega sus movimientos
+(`getMemberHistoryFn`, bajo demanda, no con la carga del panel).
+
+**Quitar un sello** (menú ⋮ del cliente) registra un `adjust` con `delta -1` y **no borra**
+el evento original: el historial debe contar lo que pasó, no fingir que no ocurrió. Y
+actualiza el pase **sin mensaje** — corregir un error del comercio no justifica notificar
+al cliente, y menos con un "¡Nuevo sello!".
+
+## Pases de Wallet
+
+Los sellos salen como saldo numérico (`3/10`) **y** como fila de círculos (`●●●○○○○○○○`),
+en Google y en Apple. La fila se arma en `src/lib/wallet/dots.ts`.
+
+⚠️ **Google reemplaza `textModulesData` entero en cada PATCH.** Por eso `buildTextModules`
+se usa al crear el pase Y en cada actualización, y el PATCH reenvía el módulo del premio
+aunque no cambie. Si se tocara solo uno de los dos sitios, la fila se congelaría mientras
+el saldo avanza.
+
+Se omite la fila por encima de 12 sellos: no se lee de un vistazo y el número es exacto.
+
+**Los pases ya emitidos no se refrescan solos:** cada uno se actualiza en su próximo sello.
 
 ## Pendiente
 
