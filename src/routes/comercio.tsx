@@ -798,7 +798,11 @@ export function Dashboard({
                     <li key={m.id} className="p-3">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="flex items-center gap-2 truncate font-medium">
+                        {/* flex-wrap en vez de truncate: con el nombre, las
+                            insignias y ahora el WhatsApp, en un celular no cabe
+                            todo en una línea y truncate cortaba justo el dato
+                            nuevo. Prefiere envolver antes que ocultar. */}
+                        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium">
                           {m.full_name}
                           {nuevo ? (
                             <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
@@ -818,6 +822,16 @@ export function Dashboard({
                           {m.apple_pass_serial_number ? (
                             <span className="rounded-full bg-gray-500/15 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:text-gray-400" title="Apple Wallet">
                               Apple ✓
+                            </span>
+                          ) : null}
+                          {/* WhatsApp al final del renglón del nombre. Es
+                              opcional al inscribirse, así que muchos clientes no
+                              lo tienen y entonces no se pinta nada: un hueco
+                              vacío ensuciaría la fila sin aportar. */}
+                          {m.phone ? (
+                            <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
+                              <MessageCircle className="h-3 w-3 shrink-0" />
+                              {m.phone}
                             </span>
                           ) : null}
                         </p>
