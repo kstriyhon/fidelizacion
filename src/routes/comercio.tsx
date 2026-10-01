@@ -18,6 +18,7 @@ import {
   MapPin,
   MessageCircle,
   MoreVertical,
+  ChevronDown,
   Pencil,
   Trash2,
   Settings,
@@ -43,8 +44,10 @@ import {
   setBusinessLocationFn,
   createProgramFn,
   updateBusinessCredentialsFn,
+  getMemberHistoryFn,
   type SwitchableBusiness,
   type PlanUsage,
+  type StampEvent,
 } from "@/lib/loyaltyActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -370,6 +373,8 @@ export function Dashboard({
   const [credentialsOpen, setCredentialsOpen] = useState(false);
   // El QR de inscripción va plegado en móvil (ver el bloque donde se usa).
   const [qrAbierto, setQrAbierto] = useState(false);
+  // Historial de sellos: se pide al desplegar una fila, de uno en uno.
+  const [historialDe, setHistorialDe] = useState<string | null>(null);
   const [newProgramOpen, setNewProgramOpen] = useState(false);
   const [inactiveDays, setInactiveDays] = useState(30);
   const [memberFilter, setMemberFilter] = useState<"all" | "new" | "inactive">("all");
@@ -790,7 +795,8 @@ export function Dashboard({
                   const inactive = isInactiveMember(m, inactiveDays);
                   const nuevo = isNewMember(m);
                   return (
-                    <li key={m.id} className="flex flex-wrap items-center justify-between gap-3 p-3">
+                    <li key={m.id} className="p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="flex items-center gap-2 truncate font-medium">
                           {m.full_name}
@@ -815,9 +821,20 @@ export function Dashboard({
                             </span>
                           ) : null}
                         </p>
-                        <p className="text-xs text-muted-foreground">
+                        {/* La línea de sellos despliega el historial. Se usa un
+                            botón y no un div con onClick para que funcione con
+                            teclado y lo anuncie un lector de pantalla. */}
+                        <button
+                          type="button"
+                          onClick={() => setHistorialDe((v) => (v === m.id ? null : m.id))}
+                          aria-expanded={historialDe === m.id}
+                          className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                        >
                           {m.stamps}/{selectedProgram?.stamps_required ?? "?"} sellos · {m.rewards_redeemed} premios
-                        </p>
+                          <ChevronDown
+                            className={`h-3.5 w-3.5 transition-transform ${historialDe === m.id ? "rotate-180" : ""}`}
+                          />
+                        </button>
                       </div>
                       <div className="flex gap-2">
                         <Button
@@ -875,6 +892,9 @@ export function Dashboard({
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
+                      </div>
+
+                      {historialDe === m.id ? <MemberHistory memberId={m.id} /> : null}
                     </li>
                   );
                 })}
@@ -1664,6 +1684,84 @@ function MemberDeleteDialog({
  * La barra de consumo además le avisa de que se está quedando corto, que es
  * justo el momento de subir de plan.
  */
+/**
+ * Historial de sellos y canjes de un cliente, desplegado bajo su fila.
+ *
+ * Carga al montarse, que es cuando el comercio despliega la fila. Así no se
+ * traen los historiales de todos los clientes en cada carga del panel para
+ * mostrar casi ninguno.
+ */
+function MemberHistory({ memberId }: { memberId: string }) {
+  const [events, setEvents] = useState<StampEvent[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const token = await getAccessToken();
+        const res = await getMemberHistoryFn({ data: { token, memberId } });
+        if (vivo) setEvents(res);
+      } catch (err) {
+        if (vivo) setError(err instanceof Error ? err.message : "No se pudo cargar el historial");
+      }
+    })();
+    // Evita escribir en un componente ya desmontado si el comercio cierra la
+    // fila antes de que llegue la respuesta.
+    return () => {
+      vivo = false;
+    };
+  }, [memberId]);
+
+  if (error) {
+    return <p className="mt-2 rounded-lg bg-muted/50 p-3 text-xs text-red-600">{error}</p>;
+  }
+  if (!events) {
+    return <p className="mt-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">Cargando…</p>;
+  }
+  if (events.length === 0) {
+    return (
+      <p className="mt-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+        Todavía no hay movimientos.
+      </p>
+    );
+  }
+
+  return (
+    <ol className="mt-2 grid gap-1.5 rounded-lg bg-muted/50 p-3">
+      {events.map((e) => {
+        const fecha = new Date(e.created_at);
+        const canje = e.kind === "redeem";
+        return (
+          <li key={e.id} className="flex items-baseline justify-between gap-3 text-xs">
+            <span className="flex items-center gap-1.5">
+              <span
+                className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+                  canje ? "bg-amber-500" : "bg-primary"
+                }`}
+              />
+              <span className={canje ? "font-medium text-amber-700 dark:text-amber-400" : ""}>
+                {canje
+                  ? `Premio canjeado${e.note ? `: ${e.note}` : ""}`
+                  : e.kind === "adjust"
+                    ? `Ajuste (${e.delta > 0 ? "+" : ""}${e.delta})`
+                    : e.delta === 1
+                      ? "Sello"
+                      : `${e.delta > 0 ? "+" : ""}${e.delta} sellos`}
+              </span>
+            </span>
+            <span className="shrink-0 text-muted-foreground">
+              {fecha.toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" })}
+              {" · "}
+              {fecha.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 function PlanCard({ usage }: { usage: PlanUsage }) {
   // 999+ es el "ilimitado" de los planes grandes: ahí una barra de progreso no
   // dice nada, así que no se pinta.

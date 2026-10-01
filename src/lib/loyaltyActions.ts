@@ -261,6 +261,39 @@ async function listSwitchableBusinesses(
   return (data as SwitchableBusiness[]) ?? [];
 }
 
+/** Un movimiento del historial de un cliente. */
+export type StampEvent = {
+  id: string;
+  delta: number;
+  kind: "stamp" | "redeem" | "adjust";
+  note: string | null;
+  created_at: string;
+};
+
+/**
+ * Historial de sellos y canjes de UN cliente, el más reciente primero.
+ *
+ * Se pide por cliente y bajo demanda (al desplegar su fila) en vez de venir con
+ * el panel: con decenas de clientes y varios sellos cada uno, cargarlo todo de
+ * golpe sería mandar al navegador un montón de datos que casi nunca se miran.
+ *
+ * requireMemberAccess ata la consulta al negocio dueño del cliente, así que un
+ * comercio no puede leer el historial de los clientes de otro.
+ */
+export const getMemberHistoryFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), memberId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireMemberAccess(data.token, data.memberId);
+    const db = getSupabaseAdmin();
+    const { data: events, error } = await db
+      .from("loyalty_stamp_events")
+      .select("id,delta,kind,note,created_at")
+      .eq("member_id", data.memberId)
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    return (events as StampEvent[]) ?? [];
+  });
+
 /** Panel del comercio: datos del negocio del usuario autenticado. */
 export const getMyDashboardFn = createServerFn({ method: "POST" })
   .validator(z.object({ token: z.string(), businessId: z.string().uuid().optional() }))
