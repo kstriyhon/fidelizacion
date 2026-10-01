@@ -829,10 +829,33 @@ export function Dashboard({
                               lo tienen y entonces no se pinta nada: un hueco
                               vacío ensuciaría la fila sin aportar. */}
                           {m.phone ? (
-                            <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
-                              <MessageCircle className="h-3 w-3 shrink-0" />
-                              {m.phone}
-                            </span>
+                            (() => {
+                              const wa = enlaceWhatsApp(m.phone);
+                              const contenido = (
+                                <>
+                                  <MessageCircle className="h-3 w-3 shrink-0" />
+                                  {m.phone}
+                                </>
+                              );
+                              // Si el número no da un enlace válido se muestra
+                              // igual, pero como texto: mejor eso que un enlace
+                              // que abre WhatsApp en una conversación vacía.
+                              return wa ? (
+                                <a
+                                  href={wa}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={`Escribir a ${m.full_name} por WhatsApp`}
+                                  className="flex items-center gap-1 text-xs font-normal text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-green-600"
+                                >
+                                  {contenido}
+                                </a>
+                              ) : (
+                                <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
+                                  {contenido}
+                                </span>
+                              );
+                            })()
                           ) : null}
                         </p>
                         {/* La línea de sellos despliega el historial. Se usa un
@@ -1705,6 +1728,29 @@ function MemberDeleteDialog({
  * traen los historiales de todos los clientes en cada carga del panel para
  * mostrar casi ninguno.
  */
+/**
+ * Convierte el teléfono guardado en un enlace de WhatsApp.
+ *
+ * wa.me exige el número con código de país y solo dígitos: un 3184735227 tal
+ * cual no abre nada. Los números se guardan a 10 dígitos sin prefijo, así que
+ * se antepone el 57 de COLOMBIA.
+ *
+ * ⚠️ Si algún día hay comercios fuera de Colombia, esto hay que revisarlo: lo
+ * correcto entonces sería guardar el teléfono ya con su prefijo al inscribir,
+ * en vez de adivinarlo aquí.
+ *
+ * Devuelve null si no hay nada que enlazar, para no pintar un enlace roto.
+ */
+const PREFIJO_PAIS = "57";
+
+function enlaceWhatsApp(telefono: string | null): string | null {
+  if (!telefono) return null;
+  const digitos = telefono.replace(/\D/g, "");
+  if (digitos.length < 7) return null; // demasiado corto para ser un móvil
+  const conPais = digitos.length === 10 ? `${PREFIJO_PAIS}${digitos}` : digitos;
+  return `https://wa.me/${conPais}`;
+}
+
 function MemberHistory({ memberId }: { memberId: string }) {
   const [events, setEvents] = useState<StampEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
