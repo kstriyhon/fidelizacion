@@ -15,6 +15,7 @@
 import forge from "node-forge";
 import JSZip from "jszip";
 import { getAppleWalletConfig, type AppleWalletConfig, decodeBase64Certificate, decodeBase64PrivateKey } from "./apple-config.server";
+import { stampDots } from "./dots";
 
 export type ProgramLike = {
   id: string;
@@ -227,6 +228,18 @@ export function buildPassInstance(
         },
       ],
       secondaryFields: [
+        // Fila de puntos antes del premio: es lo que el cliente mira de un
+        // vistazo. Se omite si el programa tiene demasiados sellos para
+        // dibujarla; el saldo "18/30" de primaryFields sigue siendo exacto.
+        ...(stampDots(member.stamps, program.stamps_required)
+          ? [
+              {
+                key: "dots",
+                label: "Tus sellos",
+                value: stampDots(member.stamps, program.stamps_required) as string,
+              },
+            ]
+          : []),
         {
           key: "reward",
           label: "Premio",

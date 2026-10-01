@@ -14,6 +14,7 @@
 
 import { getWalletConfig, getWalletConfigForProgram, type WalletConfig } from "./config.server";
 import { signJwtRs256 } from "./crypto.server";
+import { stampDots } from "./dots";
 
 const WOBJ = "https://walletobjects.googleapis.com/walletobjects/v1";
 const SCOPE = "https://www.googleapis.com/auth/wallet_object.issuer";
@@ -107,6 +108,31 @@ function buildClass(cfg: WalletConfig, program: ProgramLike, business: BusinessL
   };
 }
 
+/**
+ * Módulos de texto del pase de un cliente: el premio y la fila de sellos.
+ *
+ * Se arma en un sitio y se usa tanto al CREAR el pase como en cada PATCH. Si
+ * solo se pusiera al crearlo, la fila de puntos se quedaría congelada en el
+ * estado inicial mientras el saldo "3/10" sí avanzaría — y el cliente vería dos
+ * cosas distintas en la misma tarjeta.
+ *
+ * Google reemplaza el array entero en un PATCH, así que hay que mandar también
+ * el módulo del premio aunque no cambie; si no, desaparecería.
+ */
+function buildTextModules(member: MemberLike, program: ProgramLike) {
+  const dots = stampDots(member.stamps, program.stamps_required);
+  return [
+    {
+      id: "reward",
+      header: "Premio",
+      body: `${program.stamps_required} sellos = ${program.reward_description}`,
+    },
+    // Se omite si el programa tiene demasiados sellos para dibujarlos: el saldo
+    // numérico sigue ahí y es exacto.
+    ...(dots ? [{ id: "stamps", header: "Tus sellos", body: dots }] : []),
+  ];
+}
+
 function buildObject(
   cfg: WalletConfig,
   member: MemberLike,
@@ -129,13 +155,7 @@ function buildObject(
       value: member.id, // el comercio escanea esto para sumar un sello
       alternateText: member.full_name,
     },
-    textModulesData: [
-      {
-        id: "reward",
-        header: "Premio",
-        body: `${program.stamps_required} sellos = ${program.reward_description}`,
-      },
-    ],
+    textModulesData: buildTextModules(member, program),
   };
 }
 
@@ -312,11 +332,15 @@ export async function pushStampUpdate(
   const token = await getAccessToken(cfg);
 
   // PATCH del saldo -> Google notifica el cambio en el celular.
+  // Va también textModulesData para que la fila de puntos avance con el saldo:
+  // si solo se mandara loyaltyPoints, la tarjeta diría "4/10" con tres puntos
+  // llenos.
   const patched = await api(token, "PATCH", `/loyaltyObject/${objectId}`, {
     loyaltyPoints: {
       label: "Sellos",
       balance: { string: `${member.stamps}/${program.stamps_required}` },
     },
+    textModulesData: buildTextModules(member, program),
   });
   if (!patched.ok) throw new Error(`patch object ${patched.status}: ${await patched.text()}`);
 
