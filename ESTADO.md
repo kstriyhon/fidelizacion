@@ -3,7 +3,7 @@
 > **Este es el documento de referencia.** Otros `.md` de la raíz son históricos y contienen
 > URLs de infraestructura que ya no existe. Si alguno contradice esto, gana esto.
 
-Última actualización: **2026-09-28**
+Última actualización: **2026-10-01**
 
 ---
 
@@ -189,11 +189,30 @@ Se omite la fila por encima de 12 sellos: no se lee de un vistazo y el número e
 
 ## Pendiente
 
-1. **Ocultar al cliente** de `/p/{slug}` los botones "Editar", "Nuevo programa" y
-   "Credenciales" en `comercio.tsx`. El servidor bloquea el último (`requireAdmin`), pero
-   los ve. `requireBusinessAccess` ya devuelve `viaBusinessSession` para distinguirlo.
-2. **Borrar el Worker `idatech`** — está en la cuenta `idatech@protonmail.com`.
-3. **Registro self-service** de comercios (página pública de planes + alta automática).
+Al 2026-10-01. Lo de arriba (ocultar botones al cliente, self-service, página de planes)
+**ya está hecho** — si alguien lo lee como pendiente, está mirando una versión vieja.
+
+**1. Dar acceso propio a bugayork y a asados el uruguayo.** Solo `2x1 el original` tiene
+credenciales (`original2x1`). Los otros dos dependen de que entre el dueño de la plataforma.
+Se configura en el panel → elegir el comercio en el desplegable → **⚙ Credenciales**. Diez
+minutos, y es lo que más valor da: deja a esos dos comercios autónomos.
+
+**2. Borrar el Worker viejo `tarjeta-fidelizacion.idatech.workers.dev`.** Sigue en línea
+sirviendo un build muerto que apunta a un Supabase inexistente. Está en la cuenta de
+Cloudflare `idatech@protonmail.com`, así que tiene que entrar el usuario.
+
+**3. KV no está declarado en `wrangler.jsonc`.** `getKVCache()` en `google.server.ts`
+siempre devuelve `null`, así que el "caché de tokens en KV" del commit `b02bbd3` (14-sep) es
+código muerto; solo funciona el caché en memoria. No rompe nada —hay respaldo— pero el
+código promete algo que no ocurre. O se declara el namespace, o se quita esa rama.
+
+**4. Pasarela de pago**, si se abre el registro al público. Hoy cualquiera se registra en
+`/planes` y su comercio queda activo **sin pagar**; las facturas se generan y se marcan como
+pagadas a mano desde `/admin`. Wompi, ePayco o Mercado Pago. Son varias sesiones:
+credenciales, webhooks, qué pasa cuando un cobro falla y qué se hace con un moroso.
+
+**5. Menor:** la consola de Google Wallet acumula **25 clases**, algunas de programas ya
+borrados (se crea una por programa y no se limpian). No molesta, pero ensucia.
 
 ---
 
