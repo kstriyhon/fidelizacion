@@ -864,6 +864,58 @@ export const addStampFn = createServerFn({ method: "POST" })
     return { member: updated as Member, completed, push };
   });
 
+/**
+ * Quita un sello dado por error (dueño, admin o el propio comercio).
+ *
+ * Queda registrado como 'adjust' con delta -1, no se borra el evento original:
+ * el historial debe reflejar lo que pasó —se dio un sello y luego se quitó—,
+ * no fingir que nunca ocurrió.
+ *
+ * La tarjeta del cliente se actualiza SIN mensaje: corregir un error nuestro no
+ * justifica mandarle una notificación, y menos una de "¡Nuevo sello!".
+ */
+export const removeStampFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), memberId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireMemberAccess(data.token, data.memberId);
+    const db = getSupabaseAdmin();
+    const { member, program, business } = await loadMemberContext(data.memberId);
+
+    if (member.stamps <= 0) {
+      throw new Error("Este cliente no tiene sellos que quitar.");
+    }
+
+    const newStamps = member.stamps - 1;
+
+    const { data: updated, error } = await db
+      .from("loyalty_members")
+      .update({ stamps: newStamps })
+      .eq("id", member.id)
+      .select("*")
+      .single();
+    if (error || !updated) throw new Error(`No se pudo quitar el sello: ${error?.message ?? ""}`);
+
+    await db.from("loyalty_stamp_events").insert({
+      member_id: member.id,
+      delta: -1,
+      kind: "adjust",
+      note: "Sello quitado por el comercio",
+    });
+
+    // Sin el tercer argumento (message) solo se corrige el saldo del pase.
+    const cfg = getWalletConfigForProgram(program);
+    await pushStampUpdate(
+      { id: member.id, full_name: member.full_name, stamps: newStamps },
+      program,
+      undefined,
+      cfg,
+    );
+
+    await syncApplePass(updated as Member, program, business);
+
+    return { member: updated as Member };
+  });
+
 /** Canjea el premio (dueño o admin). */
 export const redeemRewardFn = createServerFn({ method: "POST" })
   .validator(z.object({ token: z.string(), memberId: z.string().uuid() }))

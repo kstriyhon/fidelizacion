@@ -19,6 +19,7 @@ import {
   MessageCircle,
   MoreVertical,
   ChevronDown,
+  Minus,
   Pencil,
   Trash2,
   Settings,
@@ -45,6 +46,7 @@ import {
   createProgramFn,
   updateBusinessCredentialsFn,
   getMemberHistoryFn,
+  removeStampFn,
   type SwitchableBusiness,
   type PlanUsage,
   type StampEvent,
@@ -402,6 +404,24 @@ export function Dashboard({
     typeof window !== "undefined" && selectedProgram
       ? `${window.location.origin}/unirse/${business.slug}?program=${selectedProgram.id}`
       : "";
+
+  /** Quita un sello dado por error. No pide confirmación: se deshace dando el
+   *  sello otra vez, y un diálogo de más estorba en el mostrador. */
+  async function quitarSello(m: Member) {
+    setBusy(m.id);
+    try {
+      const token = await getAccessToken();
+      await removeStampFn({ data: { token, memberId: m.id } });
+      toast.success("Sello quitado", {
+        description: "La tarjeta del cliente se actualizó, sin avisarle.",
+      });
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function stamp(m: Member) {
     if (!selectedProgram) return;
@@ -917,6 +937,12 @@ export function Dashboard({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              disabled={m.stamps <= 0 || busy === m.id}
+                              onClick={() => quitarSello(m)}
+                            >
+                              <Minus className="mr-2 h-4 w-4" /> Quitar un sello
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setEditMember(m)}>
                               <Pencil className="mr-2 h-4 w-4" /> Editar cliente
                             </DropdownMenuItem>
