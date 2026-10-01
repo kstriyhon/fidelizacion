@@ -135,6 +135,44 @@ el evento original: el historial debe contar lo que pasó, no fingir que no ocur
 actualiza el pase **sin mensaje** — corregir un error del comercio no justifica notificar
 al cliente, y menos con un "¡Nuevo sello!".
 
+## ⚠️ Notificaciones push: leer antes de "arreglar" nada
+
+Dos sistemas independientes, con fallos y límites distintos. Un día entero se fue en
+confundirlos.
+
+**Google Wallet — funciona, pero NO es instantáneo.** Tarda **~1 minuto**. Eso es normal;
+no es un fallo. Y el límite real importa:
+
+> Google entrega **3 notificaciones por tarjeta cada 24 h**. Pasado eso **no las rechaza**:
+> las encola y llegan horas después, todas juntas. Además avisa de que puede recortar la
+> cuota del emisor si considera que abusa.
+
+El límite es **por cliente, no por negocio**: si 50 clientes ganan un sello, los 50 reciben
+su aviso. `puedeNotificar()` en `loyaltyActions.ts` cuenta los sellos y canjes de las
+últimas 24 h y, a partir del tercero, manda el mensaje como `TEXT` en vez de
+`TEXT_AND_NOTIFY` — aparece en la tarjeta al momento, sin gastar cuota.
+
+Los mensajes que el comercio escribe a mano **no se cuentan** (no quedan en
+`loyalty_stamp_events`). Son deliberados y poco frecuentes; si se vuelven habituales habría
+que registrarlos.
+
+**Al diagnosticar, no se puede probar a base de sellos seguidos:** se quema la cuota y todo
+parece roto. Usa una tarjeta sin actividad en 24 h, un solo sello, y espera dos minutos.
+
+**Apple Wallet — estuvo roto semanas sin que nada avisara.** `loyalty_device_registrations`
+quedó incompleta al migrar de proyecto Supabase: faltaban `device_library_identifier` y
+`registered_at`, el upsert fallaba, el endpoint devolvía 500 y **ningún iPhone llegó a
+registrarse**. Sin token no hay a dónde notificar. Lo arregla la migración `0018`.
+
+Lo ocultó que `syncApplePass` captura sus errores y solo hace `console.warn` — a propósito,
+para que un fallo de Apple no impida dar el sello, pero eso también silencia el problema.
+**Si Apple deja de notificar, lo primero es mirar si `loyalty_device_registrations` tiene
+filas.**
+
+Para probar el registro sin un iPhone: leer el `.pkpass` de `loyalty_apple_passes`
+(columna `signature`, bytea), sacar su `authenticationToken` y hacer el POST a
+`/api/passkit/v1/devices/{id}/registrations/{passType}/{serial}`. Debe dar **201**.
+
 ## Pases de Wallet
 
 Los sellos salen como saldo numérico (`3/10`) **y** como fila de círculos (`●●●○○○○○○○`),

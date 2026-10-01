@@ -105,6 +105,28 @@ export type Invoice = {
 export type ProgramWithBusiness = Program & { business: Business };
 
 /**
+ * Program CON sus credenciales de Google Wallet. Solo existe en el servidor.
+ *
+ * Estas columnas se sacaron de `Program` a propósito: no deben viajar al
+ * navegador (ver PROGRAM_CLIENT_COLUMNS). Pero getWalletConfigForProgram las
+ * necesita, porque si el programa tiene credenciales propias emite los pases
+ * con la cuenta del comercio y no con la de la plataforma.
+ *
+ * Tenerlo como tipo aparte, y no como campos opcionales en Program, es
+ * deliberado: así pasar un Program "de cliente" a la configuración de Wallet es
+ * un error de compilación. Si fueran opcionales compilaría, y en ejecución
+ * caería en silencio a las credenciales globales — un comercio con su propia
+ * cuenta de Wallet vería sus pases emitidos por la nuestra sin que nada avisara.
+ *
+ * Solo usar este tipo con programas cargados con select("*").
+ */
+export type ProgramWithWallet = Program & {
+  google_wallet_issuer_id: string | null;
+  google_wallet_sa_email: string | null;
+  google_wallet_sa_private_key: string | null;
+};
+
+/**
  * Columnas de loyalty_programs que pueden viajar al navegador.
  *
  * Se enumeran a mano en vez de usar "*" porque la tabla guarda tambien

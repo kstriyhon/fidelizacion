@@ -6,7 +6,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import type { Business, Member, Program, Plan, Subscription, Invoice } from "./data";
+import type { Business, Member, Program, ProgramWithWallet, Plan, Subscription, Invoice } from "./data";
 import { PROGRAM_CLIENT_COLUMNS } from "./data";
 import { getSupabaseAdmin } from "./supabaseAdmin.server";
 import {
@@ -95,7 +95,9 @@ async function syncApplePass(
 
 async function loadMemberContext(memberId: string): Promise<{
   member: Member;
-  program: Program;
+  // ProgramWithWallet y no Program: aqui se carga con select("*"), asi que
+  // trae las credenciales de Wallet que getWalletConfigForProgram necesita.
+  program: ProgramWithWallet;
   business: Business;
 }> {
   const db = getSupabaseAdmin();
@@ -121,7 +123,47 @@ async function loadMemberContext(memberId: string): Promise<{
   if (e3 || !business) throw new Error(`Comercio no encontrado: ${e3?.message ?? ""}`);
   assertActive(business as Business);
 
-  return { member: member as Member, program: program as Program, business: business as Business };
+  return {
+    member: member as Member,
+    program: program as ProgramWithWallet,
+    business: business as Business,
+  };
+}
+
+/**
+ * Google solo entrega 3 notificaciones por tarjeta cada 24 h. A partir de ahí
+ * NO las rechaza: las encola, y llegan horas después todas juntas. Además avisa
+ * de que puede recortar la cuota del emisor si considera que abusa.
+ *
+ * Así que a partir de la tercera se manda el mensaje sin pedir notificación:
+ * aparece igual en la tarjeta, al momento, y no se gasta cuota.
+ *
+ * Se cuenta sobre loyalty_stamp_events, que registra sellos y canjes — la vía
+ * automática y la única que puede dispararse muchas veces en un día. Los
+ * mensajes que el comercio escribe a mano no quedan ahí y no se cuentan: son
+ * deliberados y poco frecuentes, así que no compensa añadir una tabla solo para
+ * eso. Si algún día se vuelven habituales, habría que registrarlos también.
+ */
+const LIMITE_NOTIFICACIONES_24H = 3;
+
+async function puedeNotificar(
+  db: ReturnType<typeof getSupabaseAdmin>,
+  memberId: string,
+): Promise<boolean> {
+  const desde = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { count, error } = await db
+    .from("loyalty_stamp_events")
+    .select("id", { count: "exact", head: true })
+    .eq("member_id", memberId)
+    .in("kind", ["stamp", "redeem"])
+    .gte("created_at", desde);
+
+  // Ante la duda, notificar: perder un aviso es peor que gastar una cuota.
+  if (error) {
+    console.warn("puedeNotificar: no se pudo contar, se notifica igualmente:", error.message);
+    return true;
+  }
+  return (count ?? 0) < LIMITE_NOTIFICACIONES_24H;
 }
 
 /** Lanza si el servicio del comercio está pausado (bloquea sellos/inscripción). */
@@ -574,7 +616,7 @@ export const createBusinessFn = createServerFn({ method: "POST" })
     }
 
     try {
-      const cfg = getWalletConfigForProgram(prog as Program);
+      const cfg = getWalletConfigForProgram(prog as ProgramWithWallet);
       const res = await ensureProgramClass(prog as Program, biz as Business, cfg);
       await db.from("loyalty_programs").update({ wallet_class_id: res.classId }).eq("id", prog.id);
     } catch (err) {
@@ -636,7 +678,7 @@ export const uploadLogoFn = createServerFn({ method: "POST" })
         .limit(1)
         .maybeSingle();
       if (business && program) {
-        const cfg = getWalletConfigForProgram(program as Program);
+        const cfg = getWalletConfigForProgram(program as ProgramWithWallet);
         await ensureProgramClass(program as Program, business as Business, cfg);
       }
     } catch (err) {
@@ -680,7 +722,7 @@ export const setBusinessLocationFn = createServerFn({ method: "POST" })
         .limit(1)
         .maybeSingle();
       if (business && program) {
-        const cfg = getWalletConfigForProgram(program as Program);
+        const cfg = getWalletConfigForProgram(program as ProgramWithWallet);
         await ensureProgramClass(program as Program, business as Business, cfg);
       }
     } catch (err) {
@@ -747,7 +789,7 @@ export const updateProgramFn = createServerFn({ method: "POST" })
         .eq("id", data.programId)
         .single();
       if (business && program) {
-        const cfg = getWalletConfigForProgram(program as Program);
+        const cfg = getWalletConfigForProgram(program as ProgramWithWallet);
         await ensureProgramClass(program as Program, business as Business, cfg);
       }
     } catch (err) {
@@ -798,7 +840,7 @@ export const provisionProgramFn = createServerFn({ method: "POST" })
       .single();
     if (be || !business) throw new Error(`Comercio no encontrado: ${be?.message ?? ""}`);
 
-    const cfg = getWalletConfigForProgram(program as Program);
+    const cfg = getWalletConfigForProgram(program as ProgramWithWallet);
     const res = await ensureProgramClass(program as Program, business as Business, cfg);
     await db.from("loyalty_programs").update({ wallet_class_id: res.classId }).eq("id", program.id);
     return res;
@@ -811,6 +853,11 @@ export const addStampFn = createServerFn({ method: "POST" })
     await requireMemberAccess(data.token, data.memberId);
     const db = getSupabaseAdmin();
     const { member, program, business } = await loadMemberContext(data.memberId);
+
+    // Se consulta ANTES de registrar el sello de ahora: si se hiciera después,
+    // este mismo evento entraría en la cuenta y el tercer sello del día —que sí
+    // puede notificar— se quedaría sin aviso.
+    const notificar = await puedeNotificar(db, member.id);
 
     const newStamps = Math.min(member.stamps + 1, program.stamps_required);
     const completed = newStamps >= program.stamps_required;
@@ -855,13 +902,15 @@ export const addStampFn = createServerFn({ method: "POST" })
       program,
       message,
       cfg,
+      notificar,
     );
 
+    // Apple no tiene este límite: sus push van por APNs, que son nuestros.
     await syncApplePass(updated as Member, program, business, {
       stampChangeMessage: completed ? message.header : message.body,
     });
 
-    return { member: updated as Member, completed, push };
+    return { member: updated as Member, completed, push, notificado: notificar };
   });
 
 /**
@@ -1084,7 +1133,7 @@ export const broadcastFn = createServerFn({ method: "POST" })
       list.map(async (m) => {
         const title = fill(data.title, m.full_name);
         const body = fill(data.body, m.full_name);
-        const cfg = prog ? getWalletConfigForProgram(prog as Program) : undefined;
+        const cfg = prog ? getWalletConfigForProgram(prog as ProgramWithWallet) : undefined;
         const push = await pushMessage(m.id, { header: title, body }, cfg);
         if (prog) {
           await syncApplePass(m, prog as Program, business, { auxiliaryMessage: `${title}: ${body}` });
@@ -1156,7 +1205,7 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
       .single();
     if (me || !member) throw new Error(`No se pudo inscribir: ${me?.message ?? ""}`);
 
-    const cfg = getWalletConfigForProgram(program as Program);
+    const cfg = getWalletConfigForProgram(program as ProgramWithWallet);
     const pass = await createMemberPass(
       { id: member.id, full_name: member.full_name, stamps: member.stamps },
       program as Program,
@@ -1212,7 +1261,7 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
       const body = tpl
         .replace(/\{nombre\}/g, member.full_name)
         .replace(/\{negocio\}/g, (business as Business).name);
-      const cfg = getWalletConfigForProgram(program as Program);
+      const cfg = getWalletConfigForProgram(program as ProgramWithWallet);
       await pushMessage(member.id, { header: `¡Bienvenido/a a ${(business as Business).name}! 🎉`, body }, cfg);
     } catch (err) {
       console.warn("welcome message:", err);

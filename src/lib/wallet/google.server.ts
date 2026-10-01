@@ -319,11 +319,19 @@ export async function createMemberPass(
  * Actualiza el saldo de sellos del objeto (dispara push) y, opcionalmente,
  * envía un mensaje (otra notificación). En mock no hace nada.
  */
+/**
+ * @param notificar  false manda el mensaje como TEXT en vez de TEXT_AND_NOTIFY:
+ *   aparece en la tarjeta pero NO pide notificación. Se usa al pasar del límite
+ *   de Google (3 notificaciones por tarjeta cada 24 h). Pedirlas igualmente no
+ *   las entrega: las encola y llegan horas después, de golpe — y Google avisa
+ *   de que recorta la cuota a quien ve abusando.
+ */
 export async function pushStampUpdate(
   member: MemberLike,
   program: ProgramLike,
   message?: { header: string; body: string },
   cfg?: WalletConfig,
+  notificar: boolean = true,
 ): Promise<{ pushed: boolean; mock: boolean }> {
   cfg = cfg ?? getWalletConfig();
   if (cfg.mode === "mock") return { pushed: false, mock: true };
@@ -351,7 +359,7 @@ export async function pushStampUpdate(
         header: message.header,
         body: message.body,
         id: `m_${Date.now()}`,
-        messageType: "TEXT_AND_NOTIFY",
+        messageType: notificar ? "TEXT_AND_NOTIFY" : "TEXT",
       },
     });
     if (!msg.ok) throw new Error(`addMessage ${msg.status}: ${await msg.text()}`);

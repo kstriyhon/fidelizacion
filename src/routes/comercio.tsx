@@ -429,10 +429,18 @@ export function Dashboard({
     try {
       const token = await getAccessToken();
       const res = await addStampFn({ data: { token, memberId: m.id } });
-      toast.success(
-        res.completed ? "¡Tarjeta completa! 🎉" : "Sello agregado",
-        { description: res.push.mock ? "Push simulado (configura Google y Apple Wallet para el real)" : "Notificación enviada al celular" },
-      );
+      // El mensaje dice lo que ocurrió de verdad. Antes afirmaba siempre
+      // "Notificación enviada", incluso cuando Google no la iba a entregar por
+      // haber pasado el límite diario — y entonces el comercio vuelve a sellar
+      // pensando que falló, que es justo lo que agrava el problema.
+      const detalle = res.push.mock
+        ? "Push simulado (configura Google y Apple Wallet para el real)"
+        : res.notificado
+          ? "Notificación enviada al celular"
+          : "Sin notificación: este cliente ya recibió 3 hoy (límite de Google). El sello sí se registró.";
+      toast.success(res.completed ? "¡Tarjeta completa! 🎉" : "Sello agregado", {
+        description: detalle,
+      });
       reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error");
