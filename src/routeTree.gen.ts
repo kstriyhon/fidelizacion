@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as PlanesRouteImport } from './routes/planes'
 import { Route as NuevaClaveRouteImport } from './routes/nueva-clave'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as HotelRouteImport } from './routes/hotel'
 import { Route as ComercioRouteImport } from './routes/comercio'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
@@ -32,6 +33,11 @@ const NuevaClaveRoute = NuevaClaveRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HotelRoute = HotelRouteImport.update({
+  id: '/hotel',
+  path: '/hotel',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ComercioRoute = ComercioRouteImport.update({
@@ -69,6 +75,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/comercio': typeof ComercioRoute
+  '/hotel': typeof HotelRoute
   '/login': typeof LoginRoute
   '/nueva-clave': typeof NuevaClaveRoute
   '/planes': typeof PlanesRoute
@@ -80,6 +87,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/comercio': typeof ComercioRoute
+  '/hotel': typeof HotelRoute
   '/login': typeof LoginRoute
   '/nueva-clave': typeof NuevaClaveRoute
   '/planes': typeof PlanesRoute
@@ -92,6 +100,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/comercio': typeof ComercioRoute
+  '/hotel': typeof HotelRoute
   '/login': typeof LoginRoute
   '/nueva-clave': typeof NuevaClaveRoute
   '/planes': typeof PlanesRoute
@@ -105,6 +114,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/comercio'
+    | '/hotel'
     | '/login'
     | '/nueva-clave'
     | '/planes'
@@ -116,6 +126,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/comercio'
+    | '/hotel'
     | '/login'
     | '/nueva-clave'
     | '/planes'
@@ -127,6 +138,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/comercio'
+    | '/hotel'
     | '/login'
     | '/nueva-clave'
     | '/planes'
@@ -139,6 +151,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
   ComercioRoute: typeof ComercioRoute
+  HotelRoute: typeof HotelRoute
   LoginRoute: typeof LoginRoute
   NuevaClaveRoute: typeof NuevaClaveRoute
   PlanesRoute: typeof PlanesRoute
@@ -168,6 +181,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/hotel': {
+      id: '/hotel'
+      path: '/hotel'
+      fullPath: '/hotel'
+      preLoaderRoute: typeof HotelRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/comercio': {
@@ -219,6 +239,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
   ComercioRoute: ComercioRoute,
+  HotelRoute: HotelRoute,
   LoginRoute: LoginRoute,
   NuevaClaveRoute: NuevaClaveRoute,
   PlanesRoute: PlanesRoute,

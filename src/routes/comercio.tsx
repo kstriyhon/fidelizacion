@@ -148,6 +148,15 @@ function ComercioPanel() {
     if (authed) load();
   }, [authed, load]);
 
+  // Un hotel no da sellos: su panel es otro. El desvío se hace aquí y no en el
+  // login porque la vertical solo se sabe tras cargar el negocio, y así el
+  // cliente de hotel entra por la misma puerta que los demás.
+  useEffect(() => {
+    if (business?.vertical === "hotel") {
+      navigate({ to: "/hotel", search: businessParam ? { business: businessParam } : {} });
+    }
+  }, [business, businessParam, navigate]);
+
   if (authPending || (authed && loading)) {
     return <div className="grid min-h-screen place-items-center text-muted-foreground">Cargando…</div>;
   }

@@ -15,6 +15,8 @@ export type Business = {
   // Ubicación para alertas de proximidad (Google Wallet). null = sin alerta.
   latitude: number | null;
   longitude: number | null;
+  /** Sector del negocio. Decide qué panel se muestra. Los antiguos son 'fidelizacion'. */
+  vertical?: "fidelizacion" | "hotel";
 };
 
 export type Program = {
@@ -32,6 +34,8 @@ export type Program = {
   welcome_message: string | null;
   created_at: string;
   updated_at: string;
+  /** Qué clase de pase emite. El motor de pases se ramifica por aquí. */
+  tipo?: "sellos" | "hotel";
   // Aquí estaban access_username/access_password, credenciales POR PROGRAMA que
   // se guardaban en texto plano y viajaban al navegador. Nunca se usaron para
   // autenticar a nadie — su diálogo no llegó a renderizarse — y quedaron
