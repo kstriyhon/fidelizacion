@@ -388,6 +388,13 @@ export const getReservationByTokenFn = createServerFn({ method: "POST" })
       .eq("business_id", business.id)
       .maybeSingle();
 
+    if (!settings) {
+      // Sin fila en hotel_settings el pase sale válido pero PELADO: sin botón de
+      // recepción, sin WhatsApp, sin cómo llegar y sin guía. Degradar en silencio
+      // es peor que ruidoso — ya pasó una vez y la tarjeta parecía correcta.
+      console.warn(`[hotel] ${business.id} no tiene hotel_settings: el pase irá sin servicios ni contactos.`);
+    }
+
     const hotel = {
       reservation: reserva as never,
       settings: (settings ?? {
