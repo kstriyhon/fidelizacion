@@ -16,6 +16,7 @@ import { Route as ComercioRouteImport } from './routes/comercio'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as UnirseSlugRouteImport } from './routes/unirse.$slug'
+import { Route as ReservaTokenRouteImport } from './routes/reserva.$token'
 import { Route as PSlugRouteImport } from './routes/p.$slug'
 
 const PlanesRoute = PlanesRouteImport.update({
@@ -53,6 +54,11 @@ const UnirseSlugRoute = UnirseSlugRouteImport.update({
   path: '/unirse/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReservaTokenRoute = ReservaTokenRouteImport.update({
+  id: '/reserva/$token',
+  path: '/reserva/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PSlugRoute = PSlugRouteImport.update({
   id: '/p/$slug',
   path: '/p/$slug',
@@ -67,6 +73,7 @@ export interface FileRoutesByFullPath {
   '/nueva-clave': typeof NuevaClaveRoute
   '/planes': typeof PlanesRoute
   '/p/$slug': typeof PSlugRoute
+  '/reserva/$token': typeof ReservaTokenRoute
   '/unirse/$slug': typeof UnirseSlugRoute
 }
 export interface FileRoutesByTo {
@@ -77,6 +84,7 @@ export interface FileRoutesByTo {
   '/nueva-clave': typeof NuevaClaveRoute
   '/planes': typeof PlanesRoute
   '/p/$slug': typeof PSlugRoute
+  '/reserva/$token': typeof ReservaTokenRoute
   '/unirse/$slug': typeof UnirseSlugRoute
 }
 export interface FileRoutesById {
@@ -88,6 +96,7 @@ export interface FileRoutesById {
   '/nueva-clave': typeof NuevaClaveRoute
   '/planes': typeof PlanesRoute
   '/p/$slug': typeof PSlugRoute
+  '/reserva/$token': typeof ReservaTokenRoute
   '/unirse/$slug': typeof UnirseSlugRoute
 }
 export interface FileRouteTypes {
@@ -100,6 +109,7 @@ export interface FileRouteTypes {
     | '/nueva-clave'
     | '/planes'
     | '/p/$slug'
+    | '/reserva/$token'
     | '/unirse/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -110,6 +120,7 @@ export interface FileRouteTypes {
     | '/nueva-clave'
     | '/planes'
     | '/p/$slug'
+    | '/reserva/$token'
     | '/unirse/$slug'
   id:
     | '__root__'
@@ -120,6 +131,7 @@ export interface FileRouteTypes {
     | '/nueva-clave'
     | '/planes'
     | '/p/$slug'
+    | '/reserva/$token'
     | '/unirse/$slug'
   fileRoutesById: FileRoutesById
 }
@@ -131,6 +143,7 @@ export interface RootRouteChildren {
   NuevaClaveRoute: typeof NuevaClaveRoute
   PlanesRoute: typeof PlanesRoute
   PSlugRoute: typeof PSlugRoute
+  ReservaTokenRoute: typeof ReservaTokenRoute
   UnirseSlugRoute: typeof UnirseSlugRoute
 }
 
@@ -185,6 +198,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UnirseSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/reserva/$token': {
+      id: '/reserva/$token'
+      path: '/reserva/$token'
+      fullPath: '/reserva/$token'
+      preLoaderRoute: typeof ReservaTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/p/$slug': {
       id: '/p/$slug'
       path: '/p/$slug'
@@ -203,6 +223,7 @@ const rootRouteChildren: RootRouteChildren = {
   NuevaClaveRoute: NuevaClaveRoute,
   PlanesRoute: PlanesRoute,
   PSlugRoute: PSlugRoute,
+  ReservaTokenRoute: ReservaTokenRoute,
   UnirseSlugRoute: UnirseSlugRoute,
 }
 export const routeTree = rootRouteImport

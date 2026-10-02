@@ -336,6 +336,100 @@ export const getMemberHistoryFn = createServerFn({ method: "POST" })
     return (events as StampEvent[]) ?? [];
   });
 
+/**
+ * Datos de una reserva y su pase, a partir del enlace que el hotel manda al
+ * huésped. PÚBLICA, igual que la inscripción por QR: el huésped no tiene cuenta.
+ *
+ * Lo que la protege es que el access_token es aleatorio y no el código de
+ * reserva — los hoteles los numeran de forma correlativa, y con el código en la
+ * URL cualquiera podría recorrerlos y leer las reservas de los demás.
+ *
+ * Emite el pase la primera vez y lo ACTUALIZA si ya existe: cuando el huésped
+ * vuelve, el hotel crea otra reserva y esta función reescribe su tarjeta de
+ * siempre en vez de emitirle una segunda.
+ */
+export const getReservationByTokenFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string().min(8) }))
+  .handler(async ({ data }) => {
+    const db = getSupabaseAdmin();
+
+    const { data: reserva } = await db
+      .from("hotel_reservations")
+      .select("*")
+      .eq("access_token", data.token)
+      .maybeSingle();
+    if (!reserva) throw new Error("Esta reserva no existe o el enlace caducó.");
+
+    const { data: member } = await db
+      .from("loyalty_members")
+      // Sin la cédula a propósito: esta respuesta va al navegador del huésped.
+      .select("id, full_name, stamps, program_id, wallet_object_id")
+      .eq("id", reserva.member_id)
+      .maybeSingle();
+    if (!member) throw new Error("No encontramos al huésped de esta reserva.");
+
+    const { data: program } = await db
+      .from("loyalty_programs")
+      .select("*")
+      .eq("id", member.program_id)
+      .maybeSingle();
+    if (!program) throw new Error("Programa no encontrado.");
+
+    const { data: business } = await db
+      .from("loyalty_businesses")
+      .select("*")
+      .eq("id", program.business_id)
+      .maybeSingle();
+    if (!business) throw new Error("Hotel no encontrado.");
+
+    const { data: settings } = await db
+      .from("hotel_settings")
+      .select("*")
+      .eq("business_id", business.id)
+      .maybeSingle();
+
+    const hotel = {
+      reservation: reserva as never,
+      settings: (settings ?? {
+        services: [],
+        guest_guide: [],
+        reception_phone: null,
+        whatsapp: null,
+        website: null,
+      }) as never,
+    };
+
+    const cfg = getWalletConfigForProgram(program as ProgramWithWallet);
+    const pass = await createMemberPass(
+      { id: member.id, full_name: member.full_name, stamps: member.stamps ?? 0 },
+      program as Program,
+      business as Business,
+      cfg,
+      { tipo: program.tipo ?? "hotel", hotel },
+    );
+
+    if (pass.objectId && pass.objectId !== member.wallet_object_id) {
+      await db.from("loyalty_members").update({ wallet_object_id: pass.objectId }).eq("id", member.id);
+    }
+
+    return {
+      hotelName: business.name as string,
+      brandColor: business.brand_color as string,
+      logoUrl: (business.logo_url as string | null) ?? null,
+      guestName: member.full_name as string,
+      reservation: {
+        code: reserva.reservation_code as string,
+        room: (reserva.room as string | null) ?? null,
+        guests: reserva.guests as number,
+        checkIn: reserva.check_in as string,
+        checkOut: reserva.check_out as string,
+        status: reserva.status as string,
+      },
+      googleSaveUrl: pass.saveUrl,
+      googleMock: pass.mock,
+    };
+  });
+
 /** Panel del comercio: datos del negocio del usuario autenticado. */
 export const getMyDashboardFn = createServerFn({ method: "POST" })
   .validator(z.object({ token: z.string(), businessId: z.string().uuid().optional() }))
