@@ -14,7 +14,17 @@
 
 import { getWalletConfig, getWalletConfigForProgram, type WalletConfig } from "./config.server";
 import { signJwtRs256 } from "./crypto.server";
-import { stampDots } from "./dots";
+import {
+  getPassBuilder,
+  buildLoyaltyTextModules,
+  type PassContext,
+  type ProgramLike,
+  type BusinessLike,
+  type MemberLike,
+} from "./passes";
+
+// Se re-exportan para no romper a quien ya los importaba de aqui.
+export type { ProgramLike, BusinessLike, MemberLike } from "./passes";
 
 const WOBJ = "https://walletobjects.googleapis.com/walletobjects/v1";
 const SCOPE = "https://www.googleapis.com/auth/wallet_object.issuer";
@@ -39,25 +49,6 @@ function getKVCache() {
   return null;
 }
 
-export type ProgramLike = {
-  id: string;
-  name: string;
-  stamps_required: number;
-  reward_description: string;
-};
-export type BusinessLike = {
-  id: string;
-  name: string;
-  brand_color: string;
-  logo_url: string | null;
-  latitude?: number | null;
-  longitude?: number | null;
-};
-export type MemberLike = {
-  id: string;
-  full_name: string;
-  stamps: number;
-};
 
 function suffix(prefix: string, id: string): string {
   return `${prefix}_${id}`.replace(/[^A-Za-z0-9._-]/g, "_");
@@ -69,95 +60,11 @@ export function objectIdFor(cfg: WalletConfig, memberId: string): string {
   return `${cfg.issuerId}.${suffix("mem", memberId)}`;
 }
 
-// Logo por defecto (Google lo exige) cuando el comercio no subió uno: un
-// placeholder cuadrado con su color de marca.
-function defaultLogoUri(business: BusinessLike): string {
-  const hex = business.brand_color.replace("#", "") || "4f46e5";
-  return `https://placehold.co/600x600/${hex}/ffffff/png`;
-}
 
 // --- Modelos que se envían a Google -----------------------------------------
 
-function buildClass(cfg: WalletConfig, program: ProgramLike, business: BusinessLike) {
-  return {
-    id: classIdFor(cfg, program.id),
-    issuerName: business.name,
-    programName: program.name,
-    reviewStatus: "UNDER_REVIEW",
-    hexBackgroundColor: business.brand_color,
-    // Google exige un logo. Si el comercio no subió uno, generamos un placeholder
-    // con su color de marca (así siempre hay logo válido y la clase se crea).
-    programLogo: {
-      sourceUri: { uri: business.logo_url || defaultLogoUri(business) },
-      contentDescription: {
-        defaultValue: { language: "es", value: `Logo de ${business.name}` },
-      },
-    },
-    // Ubicación para alertas de proximidad (Google decide el radio, ~150 m).
-    ...(business.latitude != null && business.longitude != null
-      ? { locations: [{ latitude: business.latitude, longitude: business.longitude }] }
-      : {}),
-    // "sellos requeridos" y premio como módulo de texto informativo.
-    textModulesData: [
-      {
-        id: "reward",
-        header: "Premio",
-        body: `${program.stamps_required} sellos = ${program.reward_description}`,
-      },
-    ],
-  };
-}
 
-/**
- * Módulos de texto del pase de un cliente: el premio y la fila de sellos.
- *
- * Se arma en un sitio y se usa tanto al CREAR el pase como en cada PATCH. Si
- * solo se pusiera al crearlo, la fila de puntos se quedaría congelada en el
- * estado inicial mientras el saldo "3/10" sí avanzaría — y el cliente vería dos
- * cosas distintas en la misma tarjeta.
- *
- * Google reemplaza el array entero en un PATCH, así que hay que mandar también
- * el módulo del premio aunque no cambie; si no, desaparecería.
- */
-function buildTextModules(member: MemberLike, program: ProgramLike) {
-  const dots = stampDots(member.stamps, program.stamps_required);
-  return [
-    {
-      id: "reward",
-      header: "Premio",
-      body: `${program.stamps_required} sellos = ${program.reward_description}`,
-    },
-    // Se omite si el programa tiene demasiados sellos para dibujarlos: el saldo
-    // numérico sigue ahí y es exacto.
-    ...(dots ? [{ id: "stamps", header: "Tus sellos", body: dots }] : []),
-  ];
-}
 
-function buildObject(
-  cfg: WalletConfig,
-  member: MemberLike,
-  program: ProgramLike,
-  business: BusinessLike,
-) {
-  return {
-    id: objectIdFor(cfg, member.id),
-    classId: classIdFor(cfg, program.id),
-    state: "ACTIVE",
-    accountName: member.full_name,
-    // No exponemos accountId: Google lo muestra como "ID de miembro" con el UUID
-    // (feo e inútil para el cliente). El id sigue yendo en el QR para escanear.
-    loyaltyPoints: {
-      label: "Sellos",
-      balance: { string: `${member.stamps}/${program.stamps_required}` },
-    },
-    barcode: {
-      type: "QR_CODE",
-      value: member.id, // el comercio escanea esto para sumar un sello
-      alternateText: member.full_name,
-    },
-    textModulesData: buildTextModules(member, program),
-  };
-}
 
 // --- OAuth2 (service account -> access token). Solo modo live. --------------
 
@@ -247,19 +154,21 @@ export async function ensureProgramClass(
   program: ProgramLike,
   business: BusinessLike,
   cfg?: WalletConfig,
+  tipo?: string,
 ): Promise<{ classId: string; mock: boolean }> {
   cfg = cfg ?? getWalletConfig();
   const classId = classIdFor(cfg, program.id);
   if (cfg.mode === "mock") return { classId, mock: true };
 
+  const builder = getPassBuilder(tipo);
   const token = await getAccessToken(cfg);
-  const payload = buildClass(cfg, program, business);
-  const existing = await api(token, "GET", `/loyaltyClass/${classId}`);
+  const payload = { id: classId, ...builder.buildClass({ program, business }) };
+  const existing = await api(token, "GET", `/${builder.classResource}/${classId}`);
   if (existing.status === 404) {
-    const created = await api(token, "POST", `/loyaltyClass`, payload);
+    const created = await api(token, "POST", `/${builder.classResource}`, payload);
     if (!created.ok) throw new Error(`create class ${created.status}: ${await created.text()}`);
   } else if (existing.ok) {
-    const updated = await api(token, "PUT", `/loyaltyClass/${classId}`, payload);
+    const updated = await api(token, "PUT", `/${builder.classResource}/${classId}`, payload);
     if (!updated.ok) throw new Error(`update class ${updated.status}: ${await updated.text()}`);
   } else {
     throw new Error(`get class ${existing.status}: ${await existing.text()}`);
@@ -276,6 +185,8 @@ export async function createMemberPass(
   program: ProgramLike,
   business: BusinessLike,
   cfg?: WalletConfig,
+  /** Tipo de programa y, si es hotel, su reserva y ajustes. */
+  extra?: { tipo?: string; hotel?: PassContext["hotel"] },
 ): Promise<{ objectId: string; saveUrl: string | null; mock: boolean }> {
   cfg = cfg ?? getWalletConfig();
   const objectId = objectIdFor(cfg, member.id);
@@ -284,16 +195,20 @@ export async function createMemberPass(
     return { objectId, saveUrl: null, mock: true };
   }
 
-  await ensureProgramClass(program, business, cfg);
+  const builder = getPassBuilder(extra?.tipo);
+  const { classId } = await ensureProgramClass(program, business, cfg, extra?.tipo);
   const token = await getAccessToken(cfg);
-  const object = buildObject(cfg, member, program, business);
+  const object = builder.buildObject(
+    { business, program, member, hotel: extra?.hotel },
+    { classId, objectId },
+  );
 
-  const existing = await api(token, "GET", `/loyaltyObject/${objectId}`);
+  const existing = await api(token, "GET", `/${builder.objectResource}/${objectId}`);
   if (existing.status === 404) {
-    const created = await api(token, "POST", `/loyaltyObject`, object);
+    const created = await api(token, "POST", `/${builder.objectResource}`, object);
     if (!created.ok) throw new Error(`create object ${created.status}: ${await created.text()}`);
   } else if (existing.ok) {
-    const updated = await api(token, "PUT", `/loyaltyObject/${objectId}`, object);
+    const updated = await api(token, "PUT", `/${builder.objectResource}/${objectId}`, object);
     if (!updated.ok) throw new Error(`update object ${updated.status}: ${await updated.text()}`);
   } else {
     throw new Error(`get object ${existing.status}: ${await existing.text()}`);
@@ -308,7 +223,7 @@ export async function createMemberPass(
       typ: "savetowallet",
       iat: now,
       origins: [cfg.origin],
-      payload: { loyaltyObjects: [{ id: objectId, classId: object.classId }] },
+      payload: { [builder.saveJwtKey]: [{ id: objectId, classId }] },
     },
     cfg.privateKeyPem,
   );
@@ -348,7 +263,7 @@ export async function pushStampUpdate(
       label: "Sellos",
       balance: { string: `${member.stamps}/${program.stamps_required}` },
     },
-    textModulesData: buildTextModules(member, program),
+    textModulesData: buildLoyaltyTextModules(member, program),
   });
   if (!patched.ok) throw new Error(`patch object ${patched.status}: ${await patched.text()}`);
 
