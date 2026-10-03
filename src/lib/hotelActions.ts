@@ -17,6 +17,13 @@ import { getSupabaseAdmin } from "./supabaseAdmin.server";
 import { requireBusinessAccess, businessIdFromSession, requireUser } from "./authz.server";
 import { createMemberPass } from "./wallet/google.server";
 import { getWalletConfig, getWalletConfigForProgram } from "./wallet/config.server";
+import type { ReservationLike, HotelSettingsLike } from "./wallet/passes";
+import {
+  calcularNivel,
+  resumirEstancias,
+  type Nivel,
+  type EstadoFidelizacion,
+} from "./hotelFidelizacion";
 import { regenerateApplePassBuffer } from "./wallet/apple.server";
 import { getAppleWalletConfig } from "./wallet/apple-config.server";
 import { notifyMemberPassUpdate } from "./wallet/apns.server";
@@ -44,6 +51,10 @@ export type HotelReservation = {
   guestUrl: string;
   /** true si el huésped ya abrió el enlace y tiene el pase. */
   passCreated: boolean;
+  /** Nivel de fidelización del huésped, o null si el hotel no tiene niveles. */
+  nivel: string | null;
+  /** Estancias terminadas del huésped, incluida esta si ya terminó. */
+  estancias: number;
 };
 
 export type HotelSettings = {
@@ -52,6 +63,7 @@ export type HotelSettings = {
   receptionPhone: string | null;
   whatsapp: string | null;
   website: string | null;
+  loyaltyLevels: Nivel[];
 };
 
 // ---------------------------------------------------------------------------
@@ -93,6 +105,69 @@ async function resolveBusiness(token: string, businessId?: string): Promise<Busi
   return data as Business;
 }
 
+/**
+ * Qué debe mostrar HOY la tarjeta de un huésped.
+ *
+ * Es el único sitio donde se decide entre las dos caras de la tarjeta, y por
+ * eso lo usan tanto el panel como la página del huésped: si cada uno lo
+ * decidiera por su cuenta, acabarían discrepando y el huésped vería una cosa
+ * distinta según quién tocó el pase por última vez.
+ *
+ * Reglas:
+ *   - Hay reserva confirmada o en curso -> se muestra la estancia.
+ *   - No la hay y el hotel tiene niveles -> se muestra su fidelización.
+ *   - No la hay y el hotel NO tiene niveles -> se deja la última estancia, que
+ *     caducará sola. Es el comportamiento de antes, para los hoteles que no
+ *     quieren programa de fidelización.
+ */
+export async function contextoHotel(
+  memberId: string,
+  businessId: string,
+): Promise<{
+  reservation: ReservationLike | null;
+  settings: HotelSettingsLike;
+  fidelizacion?: EstadoFidelizacion;
+}> {
+  const db = getSupabaseAdmin();
+
+  const { data: reservas } = await db
+    .from("hotel_reservations")
+    .select("*")
+    .eq("member_id", memberId)
+    .order("check_in", { ascending: false });
+
+  const { data: settings } = await db
+    .from("hotel_settings")
+    .select("*")
+    .eq("business_id", businessId)
+    .maybeSingle();
+
+  const niveles = (settings?.loyalty_levels ?? []) as Nivel[];
+  const todas = (reservas ?? []) as Array<Record<string, string>>;
+
+  const activa = todas.find((r) => r.status === "confirmada" || r.status === "en_curso") ?? null;
+  const { estancias, noches } = resumirEstancias(
+    todas as unknown as Array<{ status: string; check_in: string; check_out: string }>,
+  );
+
+  const hayFidelizacion = niveles.length > 0;
+
+  return {
+    // Sin fidelización se conserva la última estancia aunque esté terminada: su
+    // caducidad ya la aparta sola, y cambiarla por una tarjeta vacía sería peor.
+    reservation: (activa ??
+      (hayFidelizacion ? null : (todas[0] ?? null))) as ReservationLike | null,
+    settings: (settings ?? {
+      services: [],
+      guest_guide: [],
+      reception_phone: null,
+      whatsapp: null,
+      website: null,
+    }) as unknown as HotelSettingsLike,
+    fidelizacion: hayFidelizacion ? calcularNivel(estancias, noches, niveles) : undefined,
+  };
+}
+
 /** El programa de tipo hotel del negocio. Un hotel tiene uno solo. */
 async function hotelProgram(businessId: string): Promise<Program> {
   const db = getSupabaseAdmin();
@@ -115,8 +190,14 @@ function origin(): string {
   return getWalletConfig().origin;
 }
 
-function toReservation(r: Record<string, unknown>, m: Record<string, unknown>): HotelReservation {
+function toReservation(
+  r: Record<string, unknown>,
+  m: Record<string, unknown>,
+  fidelizacion?: { nivel: string | null; estancias: number },
+): HotelReservation {
   return {
+    nivel: fidelizacion?.nivel ?? null,
+    estancias: fidelizacion?.estancias ?? 0,
     id: r.id as string,
     memberId: r.member_id as string,
     guestName: (m?.full_name as string) ?? "—",
@@ -170,11 +251,31 @@ export const getHotelPanelFn = createServerFn({ method: "POST" })
       .eq("business_id", business.id)
       .maybeSingle();
 
+    // El nivel se calcula por huésped y no por reserva: dos reservas del mismo
+    // huésped no pueden mostrar niveles distintos. Se agrupa primero y se
+    // calcula una vez, en vez de repetir la cuenta en cada fila.
+    const niveles = (settings?.loyalty_levels as Nivel[]) ?? [];
+    const porHuesped = new Map<string, { nivel: string | null; estancias: number }>();
+    if (niveles.length > 0) {
+      for (const id of ids) {
+        const suyas = (reservas ?? []).filter((r) => r.member_id === id);
+        const { estancias, noches } = resumirEstancias(
+          suyas as unknown as Array<{ status: string; check_in: string; check_out: string }>,
+        );
+        const estado = calcularNivel(estancias, noches, niveles);
+        porHuesped.set(id, { nivel: estado.nivel?.nombre ?? null, estancias });
+      }
+    }
+
     return {
       business,
       programId: program.id,
       reservations: (reservas ?? []).map((r) =>
-        toReservation(r as Record<string, unknown>, porId.get(r.member_id as string) ?? {}),
+        toReservation(
+          r as Record<string, unknown>,
+          porId.get(r.member_id as string) ?? {},
+          porHuesped.get(r.member_id as string),
+        ),
       ),
       settings: {
         services: (settings?.services as HotelSettings["services"]) ?? [],
@@ -182,6 +283,7 @@ export const getHotelPanelFn = createServerFn({ method: "POST" })
         receptionPhone: (settings?.reception_phone as string) ?? null,
         whatsapp: (settings?.whatsapp as string) ?? null,
         website: (settings?.website as string) ?? null,
+        loyaltyLevels: (settings?.loyalty_levels as Nivel[]) ?? [],
       } satisfies HotelSettings,
       /** false => la tarjeta sale sin botones de contacto ni guía. */
       settingsConfigured: Boolean(settings),
@@ -308,33 +410,20 @@ export const saveReservationFn = createServerFn({ method: "POST" })
     // nuevos. Es la razón de ser de "una tarjeta por huésped": al volver, su
     // tarjeta de siempre pasa a mostrar la estancia nueva. Best-effort — que
     // Google falle no debe impedir guardar la reserva en el hotel.
+    // Se recalcula el contexto en vez de usar la reserva recién guardada: si
+    // acaban de marcarla como terminada, lo que toca enseñar ya no es esa
+    // estancia sino la fidelización del huésped.
+    const contexto = await contextoHotel(memberId, business.id);
+
     let passUpdated = false;
     if (existente?.wallet_object_id) {
       try {
-        const { data: settings } = await db
-          .from("hotel_settings")
-          .select("*")
-          .eq("business_id", business.id)
-          .maybeSingle();
-
         await createMemberPass(
           { id: memberId, full_name: data.guestName, stamps: (existente.stamps as number) ?? 0 },
           program,
           business,
           getWalletConfigForProgram(program as ProgramWithWallet),
-          {
-            tipo: "hotel",
-            hotel: {
-              reservation: reserva as never,
-              settings: (settings ?? {
-                services: [],
-                guest_guide: [],
-                reception_phone: null,
-                whatsapp: null,
-                website: null,
-              }) as never,
-            },
-          },
+          { tipo: "hotel", hotel: contexto },
         );
         passUpdated = true;
       } catch (err) {
@@ -356,7 +445,7 @@ export const saveReservationFn = createServerFn({ method: "POST" })
           },
           program,
           business,
-          reserva as never,
+          contexto,
         );
       } catch (err) {
         console.error("[hotel] no se pudo actualizar el pase de Apple:", err);
@@ -434,6 +523,16 @@ export const saveHotelSettingsFn = createServerFn({ method: "POST" })
       guestGuide: z
         .array(z.object({ titulo: z.string().trim().min(1), valor: z.string().trim().min(1) }))
         .max(6, "Wallet solo muestra 10 textos; los primeros los ocupa la reserva."),
+      loyaltyLevels: z
+        .array(
+          z.object({
+            nombre: z.string().trim().min(1),
+            estancias: z.number().int().min(1),
+            beneficio: z.string().trim().min(1),
+          }),
+        )
+        .max(5, "Más de cinco niveles no se los aprende nadie.")
+        .default([]),
     }),
   )
   .handler(async ({ data }) => {
@@ -449,6 +548,7 @@ export const saveHotelSettingsFn = createServerFn({ method: "POST" })
       website: data.website || null,
       services: data.services,
       guest_guide: data.guestGuide,
+      loyalty_levels: data.loyaltyLevels,
       updated_at: new Date().toISOString(),
     };
 
@@ -472,7 +572,7 @@ async function syncHotelApplePass(
   member: { id: string; full_name: string; stamps: number; serial: string },
   program: Program,
   business: Business,
-  reservation: never,
+  contexto: Awaited<ReturnType<typeof contextoHotel>>,
 ): Promise<void> {
   const db = getSupabaseAdmin();
   const cfg = getAppleWalletConfig();
@@ -485,12 +585,6 @@ async function syncHotelApplePass(
     .maybeSingle();
   if (!fila?.auth_token) return;
 
-  const { data: settings } = await db
-    .from("hotel_settings")
-    .select("*")
-    .eq("business_id", business.id)
-    .maybeSingle();
-
   const { pkpassBuffer, mock } = await regenerateApplePassBuffer(
     member,
     program,
@@ -499,19 +593,7 @@ async function syncHotelApplePass(
     fila.auth_token as string,
     undefined,
     null,
-    {
-      tipo: "hotel",
-      hotel: {
-        reservation,
-        settings: (settings ?? {
-          services: [],
-          guest_guide: [],
-          reception_phone: null,
-          whatsapp: null,
-          website: null,
-        }) as never,
-      },
-    },
+    { tipo: "hotel", hotel: contexto },
   );
   if (mock || !pkpassBuffer) return;
 

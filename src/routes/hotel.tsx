@@ -22,6 +22,7 @@ import {
   AlertTriangle,
   Settings,
   KeyRound,
+  Award,
 } from "lucide-react";
 
 import { useSession, signOut, getAccessToken } from "@/lib/auth";
@@ -29,6 +30,7 @@ import { getBusinessSession } from "@/lib/businessSession";
 import type { Business } from "@/lib/data";
 import { updateBusinessCredentialsFn } from "@/lib/loyaltyActions";
 import { LogoEditor } from "./comercio";
+import type { Nivel } from "@/lib/hotelFidelizacion";
 import {
   getHotelPanelFn,
   saveReservationFn,
@@ -395,9 +397,17 @@ function TarjetaReserva({
             {r.documentId ? ` · CC ${r.documentId}` : ""}
           </p>
         </div>
-        <Badge className={estado.clase} variant="secondary">
-          {estado.texto}
-        </Badge>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {r.nivel ? (
+            <Badge variant="outline" className="gap-1">
+              <Award className="h-3 w-3" />
+              {r.nivel}
+            </Badge>
+          ) : null}
+          <Badge className={estado.clase} variant="secondary">
+            {estado.texto}
+          </Badge>
+        </div>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-muted-foreground">
@@ -750,6 +760,7 @@ function AjustesTarjeta({
   const [website, setWebsite] = useState(settings.website ?? "");
   const [services, setServices] = useState(settings.services);
   const [guide, setGuide] = useState(settings.guestGuide);
+  const [niveles, setNiveles] = useState(settings.loyaltyLevels);
   const [saving, setSaving] = useState(false);
 
   async function guardar() {
@@ -767,6 +778,7 @@ function AjustesTarjeta({
           website: website || undefined,
           services: services.filter((s) => s.titulo.trim() && s.url.trim()),
           guestGuide: guide.filter((g) => g.titulo.trim() && g.valor.trim()),
+          loyaltyLevels: niveles.filter((n) => n.nombre.trim() && n.beneficio.trim()),
         },
       });
       setWhatsapp(res.whatsapp ?? "");
@@ -840,9 +852,109 @@ function AjustesTarjeta({
         nuevaFila={() => ({ titulo: "", valor: "" })}
       />
 
+      <Niveles niveles={niveles} onChange={setNiveles} />
+
       <Button onClick={() => void guardar()} disabled={saving} className="w-full sm:w-auto">
         {saving ? "Guardando…" : "Guardar la tarjeta"}
       </Button>
+    </div>
+  );
+}
+
+/**
+ * Niveles de fidelización.
+ *
+ * No reutiliza ListaEditable porque aquí una de las tres columnas es un número
+ * y porque sin niguno la fidelización está APAGADA — y eso hay que decirlo, no
+ * dejar una lista vacía que parezca un hueco por rellenar.
+ */
+function Niveles({ niveles, onChange }: { niveles: Nivel[]; onChange: (n: Nivel[]) => void }) {
+  function editar(i: number, campo: keyof Nivel, valor: string | number) {
+    const copia = [...niveles];
+    copia[i] = { ...copia[i], [campo]: valor };
+    onChange(copia);
+  }
+
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <p className="flex items-center gap-2 font-medium">
+        <Award className="h-4 w-4 text-primary" />
+        Fidelización
+      </p>
+      <p className="mt-0.5 text-sm text-muted-foreground">
+        Cuando el huésped se va, su tarjeta deja de caducar y pasa a mostrar su nivel. Al reservar
+        otra vez vuelve a mostrar la estancia. Sin niveles, la tarjeta caduca al salir, como antes.
+      </p>
+
+      {niveles.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          <div className="hidden gap-2 text-xs text-muted-foreground sm:flex">
+            <span className="flex-1">Nivel</span>
+            <span className="w-24">Estancias</span>
+            <span className="flex-1">Qué le da</span>
+            <span className="w-9" />
+          </div>
+          {niveles.map((n, i) => (
+            <div key={i} className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                value={n.nombre}
+                placeholder="Plata"
+                onChange={(e) => editar(i, "nombre", e.target.value)}
+                className="flex-1"
+              />
+              <Input
+                type="number"
+                min={1}
+                value={n.estancias}
+                onChange={(e) => editar(i, "estancias", Number(e.target.value))}
+                className="sm:w-24"
+              />
+              <Input
+                value={n.beneficio}
+                placeholder="10% en el restaurante"
+                onChange={(e) => editar(i, "beneficio", e.target.value)}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => onChange(niveles.filter((_, j) => j !== i))}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-3 rounded-md bg-muted p-3 text-sm text-muted-foreground">
+          Fidelización apagada.
+        </p>
+      )}
+
+      {niveles.length < 5 ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-3"
+          onClick={() =>
+            onChange([
+              ...niveles,
+              // Se propone el siguiente escalón en vez de dejarlo en blanco: un
+              // nivel nuevo con el mismo mínimo que el anterior nunca se alcanza.
+              {
+                nombre: "",
+                estancias: (niveles.at(-1)?.estancias ?? 0) + 2,
+                beneficio: "",
+              },
+            ])
+          }
+        >
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          {niveles.length === 0 ? "Activar fidelización" : "Añadir nivel"}
+        </Button>
+      ) : null}
     </div>
   );
 }

@@ -25,6 +25,7 @@ import { stampDots } from "./dots";
 // hotel son los mismos datos para Google y para Apple, y tenerlos declarados
 // dos veces garantizaría que un día dejen de coincidir.
 import type { ReservationLike, HotelSettingsLike } from "./passes";
+import type { EstadoFidelizacion } from "../hotelFidelizacion";
 
 export type ProgramLike = {
   id: string;
@@ -320,38 +321,105 @@ export function buildHotelPassInstance(
   cfg: AppleWalletConfig,
   business: BusinessLike,
   member: MemberLike,
-  reservation: ReservationLike,
+  /** null = el huésped ya se fue: la tarjeta pasa a modo fidelización. */
+  reservation: ReservationLike | null,
   settings: HotelSettingsLike,
   serialNumber: string,
   authToken: string,
+  fidelizacion?: EstadoFidelizacion,
 ): HotelPassInstance {
   const brand = business.brand_color.replace("#", "");
   const rgb = (i: number) => parseInt(brand.substr(i, 2), 16);
+  const f = fidelizacion;
 
-  return {
+  // Reverso: lo mismo en los dos modos. Son los datos del hotel, que no dejan
+  // de ser útiles porque el huésped se haya ido.
+  const reverso = [
+    ...(settings.reception_phone
+      ? [{ key: "phone", label: "Recepción", value: settings.reception_phone }]
+      : []),
+    ...(settings.whatsapp ? [{ key: "wa", label: "WhatsApp", value: settings.whatsapp }] : []),
+    ...(settings.website ? [{ key: "web", label: "Sitio web", value: settings.website }] : []),
+    // En el reverso no hay límite práctico de campos, así que aquí cabe la
+    // guía entera — al contrario que en el frente de Google, donde Wallet
+    // solo pinta diez módulos.
+    ...settings.guest_guide.map((g, i) => ({ key: `guia_${i}`, label: g.titulo, value: g.valor })),
+    ...settings.services.map((s, i) => ({
+      key: `serv_${i}`,
+      label: s.titulo,
+      // Se quita el esquema: Apple vuelve pulsable lo que RECONOCE como
+      // correo o teléfono dentro del texto, y "mailto:ana@hotel.com" no lo
+      // reconoce — se queda como texto muerto. "ana@hotel.com" sí.
+      value: s.url.replace(/^(mailto:|tel:)/, ""),
+    })),
+  ];
+
+  const base = {
     formatVersion: 1,
     passTypeIdentifier: cfg.passTypeId,
     serialNumber,
     teamIdentifier: cfg.teamId,
     organizationName: business.name,
-    description: `Estancia en ${business.name}`,
     logoText: business.name,
-
-    expirationDate: new Date(reservation.check_out).toISOString(),
-    relevantDate: new Date(reservation.check_in).toISOString(),
-
+    backgroundColor: `rgb(${rgb(0)},${rgb(2)},${rgb(4)})`,
+    foregroundColor: "rgb(255, 255, 255)",
+    labelColor: "rgb(255, 255, 255)",
+    textColor: "rgb(255, 255, 255)",
+    webServiceURL: `${cfg.origin}/api/passkit`,
+    authenticationToken: authToken,
     barcode: {
       format: "PKBarcodeFormatQR",
-      // El id interno del huésped, NUNCA la cédula: el pase se enseña en
-      // recepción y se fotografía.
       message: member.id,
       messageEncoding: "iso-8859-1",
     },
     barcodes: [{ format: "PKBarcodeFormatQR", message: member.id, messageEncoding: "iso-8859-1" }],
-
     ...(business.latitude != null && business.longitude != null
       ? { locations: [{ latitude: business.latitude, longitude: business.longitude }] }
       : {}),
+  };
+
+  // --- Modo FIDELIZACIÓN: ya no hay estancia ---------------------------------
+  // Sin expirationDate, así que la tarjeta deja de estar vencida. Como se
+  // refirma el MISMO serial, el iPhone la reconoce como la de siempre y la
+  // actualiza en su sitio en vez de añadir otra.
+  if (!reservation) {
+    return {
+      ...base,
+      description: `Tarjeta de ${business.name}`,
+      generic: {
+        headerFields: f?.nivel ? [{ key: "nivel", label: "Nivel", value: f.nivel.nombre }] : [],
+        primaryFields: [{ key: "guest", label: "Huésped", value: member.full_name }],
+        secondaryFields: [
+          ...(f ? [{ key: "estancias", label: "Estancias", value: String(f.estancias) }] : []),
+          ...(f && f.noches > 0
+            ? [{ key: "noches", label: "Noches", value: String(f.noches) }]
+            : []),
+        ],
+        auxiliaryFields: [
+          ...(f?.nivel
+            ? [{ key: "beneficio", label: "Tu beneficio", value: f.nivel.beneficio }]
+            : []),
+          ...(f?.siguiente
+            ? [
+                {
+                  key: "siguiente",
+                  label: `Para ${f.siguiente.nombre}`,
+                  value: f.faltan === 1 ? "1 estancia más" : `${f.faltan} estancias más`,
+                },
+              ]
+            : []),
+        ],
+        backFields: reverso,
+      },
+    };
+  }
+
+  return {
+    ...base,
+    description: `Estancia en ${business.name}`,
+
+    expirationDate: new Date(reservation.check_out).toISOString(),
+    relevantDate: new Date(reservation.check_in).toISOString(),
 
     generic: {
       headerFields: reservation.room
@@ -377,38 +445,12 @@ export function buildHotelPassInstance(
       auxiliaryFields: [
         { key: "code", label: "Reserva", value: reservation.reservation_code },
         { key: "guests", label: "Huéspedes", value: String(reservation.guests) },
+        // El nivel acompaña a la estancia: es estando en el hotel cuando al
+        // huésped le sirve saber qué le da su nivel.
+        ...(f?.nivel ? [{ key: "nivel", label: "Nivel", value: f.nivel.nombre }] : []),
       ],
-      backFields: [
-        ...(settings.reception_phone
-          ? [{ key: "phone", label: "Recepción", value: settings.reception_phone }]
-          : []),
-        ...(settings.whatsapp ? [{ key: "wa", label: "WhatsApp", value: settings.whatsapp }] : []),
-        ...(settings.website ? [{ key: "web", label: "Sitio web", value: settings.website }] : []),
-        // En el reverso no hay límite práctico de campos, así que aquí cabe la
-        // guía entera — al contrario que en el frente de Google, donde Wallet
-        // solo pinta diez módulos.
-        ...settings.guest_guide.map((g, i) => ({
-          key: `guia_${i}`,
-          label: g.titulo,
-          value: g.valor,
-        })),
-        ...settings.services.map((s, i) => ({
-          key: `serv_${i}`,
-          label: s.titulo,
-          // Se quita el esquema: Apple vuelve pulsable lo que RECONOCE como
-          // correo o teléfono dentro del texto, y "mailto:ana@hotel.com" no lo
-          // reconoce — se queda como texto muerto. "ana@hotel.com" sí.
-          value: s.url.replace(/^(mailto:|tel:)/, ""),
-        })),
-      ],
+      backFields: reverso,
     },
-
-    backgroundColor: `rgb(${rgb(0)},${rgb(2)},${rgb(4)})`,
-    foregroundColor: "rgb(255, 255, 255)",
-    labelColor: "rgb(255, 255, 255)",
-    textColor: "rgb(255, 255, 255)",
-    webServiceURL: `${cfg.origin}/api/passkit`,
-    authenticationToken: authToken,
   };
 }
 
@@ -623,10 +665,18 @@ async function fetchLogoBase64(business: BusinessLike): Promise<string | null> {
  */
 function esHotel(extra?: {
   tipo?: string;
-  hotel?: { reservation: ReservationLike; settings: HotelSettingsLike };
+  hotel?: {
+    reservation: ReservationLike | null;
+    settings: HotelSettingsLike;
+    fidelizacion?: EstadoFidelizacion;
+  };
 }): extra is {
   tipo: string;
-  hotel: { reservation: ReservationLike; settings: HotelSettingsLike };
+  hotel: {
+    reservation: ReservationLike | null;
+    settings: HotelSettingsLike;
+    fidelizacion?: EstadoFidelizacion;
+  };
 } {
   return extra?.tipo === "hotel" && Boolean(extra.hotel);
 }
@@ -641,7 +691,14 @@ export async function createMemberApplePass(
   business: BusinessLike,
   logoBase64: string | null = null,
   /** Tipo de programa y, si es hotel, su reserva y sus ajustes. */
-  extra?: { tipo?: string; hotel?: { reservation: ReservationLike; settings: HotelSettingsLike } },
+  extra?: {
+    tipo?: string;
+    hotel?: {
+      reservation: ReservationLike | null;
+      settings: HotelSettingsLike;
+      fidelizacion?: EstadoFidelizacion;
+    };
+  },
 ): Promise<{
   serialNumber: string;
   authToken: string;
@@ -679,6 +736,7 @@ export async function createMemberApplePass(
           extra.hotel.settings,
           serialNumber,
           authToken,
+          extra.hotel.fidelizacion,
         )
       : buildPassInstance(
           buildPassTemplate(cfg, program, business, authToken),
@@ -730,7 +788,14 @@ export async function regenerateApplePassBuffer(
   authToken: string,
   opts?: { stampChangeMessage?: string; auxiliaryMessage?: string },
   logoBase64: string | null = null,
-  extra?: { tipo?: string; hotel?: { reservation: ReservationLike; settings: HotelSettingsLike } },
+  extra?: {
+    tipo?: string;
+    hotel?: {
+      reservation: ReservationLike | null;
+      settings: HotelSettingsLike;
+      fidelizacion?: EstadoFidelizacion;
+    };
+  },
 ): Promise<{ pkpassBuffer: Buffer | null; mock: boolean }> {
   const cfg = getAppleWalletConfig();
 
@@ -749,6 +814,7 @@ export async function regenerateApplePassBuffer(
           extra.hotel.settings,
           serialNumber,
           authToken,
+          extra.hotel.fidelizacion,
         )
       : buildPassInstance(
           buildPassTemplate(cfg, program, business, authToken),

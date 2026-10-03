@@ -37,6 +37,7 @@ import {
   patchLoyaltyObject,
 } from "./wallet/google.server";
 import { getWalletConfigForProgram } from "./wallet/config.server";
+import { contextoHotel } from "./hotelActions";
 import { createMemberApplePass, regenerateApplePassBuffer } from "./wallet/apple.server";
 import { getAppleWalletConfig } from "./wallet/apple-config.server";
 import { notifyMemberPassUpdate } from "./wallet/apns.server";
@@ -416,16 +417,11 @@ export const getReservationByTokenFn = createServerFn({ method: "POST" })
       );
     }
 
-    const hotel = {
-      reservation: reserva as never,
-      settings: (settings ?? {
-        services: [],
-        guest_guide: [],
-        reception_phone: null,
-        whatsapp: null,
-        website: null,
-      }) as never,
-    };
+    // Qué enseña la tarjeta lo decide el estado del huésped, no el enlace que
+    // abrió: si su estancia ya terminó, le toca ver su fidelización aunque haya
+    // entrado por el enlace de aquella reserva. Una tarjeta por huésped
+    // significa también una sola verdad sobre qué muestra.
+    const hotel = await contextoHotel(member.id, business.id as string);
 
     const cfg = getWalletConfigForProgram(program as ProgramWithWallet);
     const pass = await createMemberPass(
@@ -490,7 +486,7 @@ async function ensureHotelApplePass(
   serialExistente: string | null,
   program: Program,
   business: Business,
-  hotel: { reservation: never; settings: never },
+  hotel: Awaited<ReturnType<typeof contextoHotel>>,
 ): Promise<string | null> {
   const db = getSupabaseAdmin();
   const cfg = getAppleWalletConfig();

@@ -13,6 +13,7 @@
 // CONSTRUCTORES. Nada más.
 
 import { stampDots } from "./dots";
+import type { EstadoFidelizacion } from "../hotelFidelizacion";
 
 // --- Datos que recibe un constructor ----------------------------------------
 
@@ -69,7 +70,19 @@ export type PassContext = {
   business: BusinessLike;
   program: ProgramLike;
   member: MemberLike;
-  hotel?: { reservation: ReservationLike; settings: HotelSettingsLike };
+  hotel?: {
+    /**
+     * Estancia vigente, o null cuando no la hay.
+     *
+     * null es el modo FIDELIZACIÓN: el huésped ya se fue y la misma tarjeta
+     * pasa a mostrar su nivel en vez de la estancia. Por eso es `| null` y no
+     * opcional — que no haya reserva es un estado con significado, no un dato
+     * que se olvidó mandar.
+     */
+    reservation: ReservationLike | null;
+    settings: HotelSettingsLike;
+    fidelizacion?: EstadoFidelizacion;
+  };
 };
 
 /**
@@ -86,7 +99,10 @@ export type PassBuilder = {
   /** Clave del payload en el JWT de "añadir a Wallet". Tambien cambia por tipo. */
   saveJwtKey: string;
   buildClass(ctx: Omit<PassContext, "member">): Record<string, unknown>;
-  buildObject(ctx: PassContext, ids: { classId: string; objectId: string }): Record<string, unknown>;
+  buildObject(
+    ctx: PassContext,
+    ids: { classId: string; objectId: string },
+  ): Record<string, unknown>;
 };
 
 // --- Utilidades comunes ------------------------------------------------------
@@ -210,11 +226,11 @@ const hotelBuilder: PassBuilder = {
   buildObject({ business, member, hotel }, { classId, objectId }) {
     if (!hotel) {
       // Señal de un error de programación, no de datos: si un programa es de
-      // tipo hotel, quien llama debe traer la reserva. Fallar aquí es mejor que
-      // emitir una tarjeta vacía al huésped.
-      throw new Error("Falta la reserva para construir el pase de hotel.");
+      // tipo hotel, quien llama debe traer el contexto. Fallar aquí es mejor
+      // que emitir una tarjeta vacía al huésped.
+      throw new Error("Falta el contexto de hotel para construir el pase.");
     }
-    const { reservation: r, settings: s } = hotel;
+    const { reservation: r, settings: s, fidelizacion: f } = hotel;
 
     // Wallet muestra como máximo 10 enlaces del objeto. Se reservan los
     // primeros para lo que más se usa —llamar, WhatsApp, cómo llegar— y los
@@ -238,18 +254,69 @@ const hotelBuilder: PassBuilder = {
       ...s.services.slice(0, 6).map((x) => ({ uri: x.url, description: x.titulo })),
     ].slice(0, 10);
 
-    return {
+    const comun = {
       id: objectId,
       classId,
       state: "ACTIVE",
-
       cardTitle: { defaultValue: { language: "es", value: business.name } },
       header: { defaultValue: { language: "es", value: member.full_name } },
+      ...(enlaces.length > 0 ? { linksModuleData: { uris: enlaces } } : {}),
+    };
+
+    // --- Modo FIDELIZACIÓN: el huésped ya se fue -----------------------------
+    // La misma tarjeta deja de caducar y pasa a mostrar su nivel. No se emite
+    // una tarjeta nueva a propósito: dos tarjetas del mismo hotel compitiendo
+    // en el Wallet es justo lo que se quiso evitar desde el principio.
+    if (!r) {
+      return {
+        ...comun,
+        subheader: {
+          defaultValue: { language: "es", value: f?.nivel?.nombre ?? "Huésped" },
+        },
+        // Sin validTimeInterval: esta tarjeta ya no vence. Al mandarse con PUT,
+        // omitirlo BORRA el intervalo que tenía de su última estancia — que es
+        // justo lo que hace falta, porque si no seguiría vencida.
+        barcode: {
+          type: "QR_CODE",
+          value: member.id,
+          alternateText: member.full_name,
+        },
+        textModulesData: [
+          ...(f?.nivel
+            ? [
+                { id: "nivel", header: "Tu nivel", body: f.nivel.nombre },
+                { id: "beneficio", header: "Tu beneficio", body: f.nivel.beneficio },
+              ]
+            : []),
+          ...(f ? [{ id: "estancias", header: "Estancias", body: String(f.estancias) }] : []),
+          ...(f?.siguiente
+            ? [
+                {
+                  id: "siguiente",
+                  header: `Para ${f.siguiente.nombre}`,
+                  body: f.faltan === 1 ? "Te falta 1 estancia" : `Te faltan ${f.faltan} estancias`,
+                },
+              ]
+            : []),
+          ...s.guest_guide.slice(0, 3).map((g, i) => ({
+            id: `guia_${i}`,
+            header: g.titulo,
+            body: g.valor,
+          })),
+        ].slice(0, 10),
+      };
+    }
+
+    // --- Modo ESTANCIA -------------------------------------------------------
+    return {
+      ...comun,
       subheader: { defaultValue: { language: "es", value: `Reserva ${r.reservation_code}` } },
 
       // Caduca al hacer el check-out: pasada esa fecha Wallet lo pinta como
       // vencido y lo aparta de las tarjetas activas, aunque el huésped no lo
-      // borre. Es lo que evita que una estancia vieja compita con la nueva.
+      // borre. Con la fidelización activa es además una red de seguridad: si el
+      // hotel nunca marca la estancia como terminada, la tarjeta vence sola en
+      // vez de quedarse enseñando una estancia del año pasado.
       validTimeInterval: {
         start: { date: r.check_in },
         end: { date: r.check_out },
@@ -268,6 +335,11 @@ const hotelBuilder: PassBuilder = {
         { id: "checkin", header: "Check-in", body: fechaCorta(r.check_in) },
         { id: "checkout", header: "Check-out", body: fechaCorta(r.check_out) },
         { id: "guests", header: "Huéspedes", body: String(r.guests) },
+        // El nivel acompaña a la estancia: es cuando el huésped está en el hotel
+        // cuando le sirve saber qué le da su nivel.
+        ...(f?.nivel
+          ? [{ id: "nivel", header: "Tu nivel", body: `${f.nivel.nombre} — ${f.nivel.beneficio}` }]
+          : []),
         // La guía del huésped ocupa el resto. Wallet muestra 10 como máximo;
         // lo que no quepa debe ir en una página web enlazada.
         ...s.guest_guide.slice(0, 6).map((g, i) => ({
@@ -276,8 +348,6 @@ const hotelBuilder: PassBuilder = {
           body: g.valor,
         })),
       ].slice(0, 10),
-
-      ...(enlaces.length > 0 ? { linksModuleData: { uris: enlaces } } : {}),
     };
   },
 };
