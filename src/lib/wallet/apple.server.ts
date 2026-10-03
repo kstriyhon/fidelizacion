@@ -571,6 +571,50 @@ export async function generatePKPass(
 // --- API pública del módulo -------------------------------------------------
 
 /**
+ * Descarga el logo del negocio para meterlo dentro del .pkpass.
+ *
+ * Hasta ahora nadie pasaba `logoBase64`, así que TODOS los pases de Apple
+ * salían con el cuadrado de color de reserva mientras los de Google sí lucían
+ * el logo. Esto lo resuelve en el sitio común, no solo para hoteles.
+ *
+ * Es best-effort a propósito: un logo que no carga no puede impedir que un
+ * cliente se lleve su tarjeta.
+ */
+async function fetchLogoBase64(business: BusinessLike): Promise<string | null> {
+  if (!business.logo_url) return null;
+  try {
+    const res = await fetch(business.logo_url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+
+    // Apple SOLO admite PNG dentro del bundle. Un JPEG colado como icon.png no
+    // da error al firmar: el pase se instala y la imagen sale rota, que es peor
+    // que no poner ninguna.
+    const tipo = res.headers.get("content-type") ?? "";
+    if (!tipo.includes("png")) {
+      console.warn(
+        `[apple] logo de ${business.name} no es PNG (${tipo}); se usa el color de marca.`,
+      );
+      return null;
+    }
+
+    const buf = Buffer.from(await res.arrayBuffer());
+    // El .pkpass se guarda entero en la base y se refirma en cada cambio, así
+    // que un logo enorme se paga muchas veces. Medio mega ya es desproporcionado
+    // para una imagen que Wallet pinta a 29 puntos.
+    if (buf.length > 512 * 1024) {
+      console.warn(
+        `[apple] logo de ${business.name} demasiado grande (${buf.length} bytes); se omite.`,
+      );
+      return null;
+    }
+    return buf.toString("base64");
+  } catch (err) {
+    console.warn("[apple] no se pudo descargar el logo:", err);
+    return null;
+  }
+}
+
+/**
  * true si hay que emitir un pase de estancia.
  *
  * Exige el tipo Y los datos de la reserva: un programa marcado como hotel pero
@@ -624,6 +668,7 @@ export async function createMemberApplePass(
 
   // Modo live: generar pase real
   try {
+    const logo = logoBase64 ?? (await fetchLogoBase64(business));
     // 1. Construir el pase que toque según la vertical
     const passInstance = esHotel(extra)
       ? buildHotelPassInstance(
@@ -645,7 +690,7 @@ export async function createMemberApplePass(
     // 2. Generar .pkpass (ZIP). generatePKPass arma el manifest y firma
     // manifest.json internamente. El llamador lo persiste (DB/storage) para
     // poder servirlo en /api/passkit/download/:serial.
-    const pkpassBuffer = await generatePKPass(passInstance, logoBase64, cfg);
+    const pkpassBuffer = await generatePKPass(passInstance, logo, cfg);
 
     // 3. URL de descarga pública (sin auth header especial de Apple — la
     // usan el navegador/Wallet la primera vez). El token en query es una
@@ -694,6 +739,7 @@ export async function regenerateApplePassBuffer(
   }
 
   try {
+    const logo = logoBase64 ?? (await fetchLogoBase64(business));
     const passInstance = esHotel(extra)
       ? buildHotelPassInstance(
           cfg,
@@ -712,7 +758,7 @@ export async function regenerateApplePassBuffer(
           opts,
         );
 
-    const pkpassBuffer = await generatePKPass(passInstance, logoBase64, cfg);
+    const pkpassBuffer = await generatePKPass(passInstance, logo, cfg);
 
     return { pkpassBuffer, mock: false };
   } catch (error) {
