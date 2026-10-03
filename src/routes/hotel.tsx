@@ -28,6 +28,7 @@ import { useSession, signOut, getAccessToken } from "@/lib/auth";
 import { getBusinessSession } from "@/lib/businessSession";
 import type { Business } from "@/lib/data";
 import { updateBusinessCredentialsFn } from "@/lib/loyaltyActions";
+import { LogoEditor } from "./comercio";
 import {
   getHotelPanelFn,
   saveReservationFn,
@@ -299,13 +300,19 @@ function HotelPanel() {
           </TabsContent>
 
           <TabsContent value="tarjeta">
-            {settings ? (
-              <AjustesTarjeta
-                settings={settings}
-                businessId={businessSession ? undefined : businessParam}
-                onGuardado={load}
-              />
-            ) : null}
+            <div className="space-y-5">
+              {/* El mismo editor del panel de sellos. Se reutiliza en vez de
+                  copiarlo: subir un logo tiene su truco (normalizar a PNG, que
+                  es lo único que Apple admite) y no debe vivir en dos sitios. */}
+              <LogoEditor business={business} reload={load} />
+              {settings ? (
+                <AjustesTarjeta
+                  settings={settings}
+                  businessId={businessSession ? undefined : businessParam}
+                  onGuardado={load}
+                />
+              ) : null}
+            </div>
           </TabsContent>
         </Tabs>
       </main>

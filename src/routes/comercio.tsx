@@ -27,6 +27,7 @@ import {
 
 import { useSession, signOut, getAccessToken } from "@/lib/auth";
 import { getBusinessSession } from "@/lib/businessSession";
+import { normalizarLogo } from "@/lib/logoImagen";
 import { computeMetrics, isInactiveMember, isNewMember } from "@/lib/metrics";
 import type { Business, Member, Program } from "@/lib/data";
 import {
@@ -133,9 +134,10 @@ function ComercioPanel() {
       setSwitchable(res.switchable);
       setPlanUsage(res.planUsage);
       // Si hay parámetro ?program=, usa ese; sino el primero
-      const targetProgramId = programParam && res.programs.some((p) => p.id === programParam)
-        ? programParam
-        : res.programs[0]?.id ?? null;
+      const targetProgramId =
+        programParam && res.programs.some((p) => p.id === programParam)
+          ? programParam
+          : (res.programs[0]?.id ?? null);
       setSelectedProgramId(targetProgramId);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error");
@@ -158,10 +160,16 @@ function ComercioPanel() {
   }, [business, businessParam, navigate]);
 
   if (authPending || (authed && loading)) {
-    return <div className="grid min-h-screen place-items-center text-muted-foreground">Cargando…</div>;
+    return (
+      <div className="grid min-h-screen place-items-center text-muted-foreground">Cargando…</div>
+    );
   }
   if (!authed) {
-    return <div className="grid min-h-screen place-items-center text-muted-foreground">Redirigiendo…</div>;
+    return (
+      <div className="grid min-h-screen place-items-center text-muted-foreground">
+        Redirigiendo…
+      </div>
+    );
   }
 
   if (!business) {
@@ -178,7 +186,10 @@ function ComercioPanel() {
               Puede que tu sesión haya caducado. Vuelve a entrar y, si sigue igual, avisa a quien
               administra tu programa de fidelización.
             </p>
-            <Button className="mt-4" onClick={() => void signOut().then(() => navigate({ to: "/" }))}>
+            <Button
+              className="mt-4"
+              onClick={() => void signOut().then(() => navigate({ to: "/" }))}
+            >
               Volver a entrar
             </Button>
           </div>
@@ -279,7 +290,11 @@ export function Onboarding({
         <form onSubmit={submit} className="mt-6 grid gap-4">
           <div className="grid gap-1.5">
             <Label>Nombre del negocio</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Panadería La Espiga" />
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Panadería La Espiga"
+            />
           </div>
           <div className="grid gap-1.5">
             <Label>Color de la tarjeta</Label>
@@ -395,7 +410,9 @@ export function Dashboard({
   const selectedProgram = programs.find((p) => p.id === selectedProgramId) ?? programs[0] ?? null;
   const required = selectedProgram?.stamps_required ?? 1;
 
-  const programMembers = selectedProgram ? members.filter((m) => m.program_id === selectedProgram.id) : [];
+  const programMembers = selectedProgram
+    ? members.filter((m) => m.program_id === selectedProgram.id)
+    : [];
   const metrics = computeMetrics(programMembers, () => required, { inactiveDays });
 
   const q = search.trim().toLowerCase();
@@ -503,11 +520,13 @@ export function Dashboard({
         shownMembers.map((m) =>
           sendMemberMessageFn({
             data: { token, memberId: m.id, title, body },
-          })
-        )
+          }),
+        ),
       );
 
-      toast.success(`Felicitaciones enviadas a ${shownMembers.length} cliente${shownMembers.length !== 1 ? "s" : ""}`);
+      toast.success(
+        `Felicitaciones enviadas a ${shownMembers.length} cliente${shownMembers.length !== 1 ? "s" : ""}`,
+      );
       reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al enviar felicitaciones");
@@ -548,7 +567,9 @@ export function Dashboard({
                 </div>
               ) : null}
               <p className="text-xs text-muted-foreground mt-1">
-                {selectedProgram ? `${selectedProgram.name} · ${selectedProgram.stamps_required} sellos = ${selectedProgram.reward_description}` : "Sin programa"}
+                {selectedProgram
+                  ? `${selectedProgram.name} · ${selectedProgram.stamps_required} sellos = ${selectedProgram.reward_description}`
+                  : "Sin programa"}
               </p>
               {selectedProgram && canManagePrograms ? (
                 <div className="mt-2 flex gap-2">
@@ -666,49 +687,50 @@ export function Dashboard({
               </Button>
 
               <div className={qrAbierto ? "block" : "hidden md:block"}>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Que escaneen este QR o abran el enlace para agregar la tarjeta a Google Wallet o Apple Wallet.
-              </p>
-              {enrollUrl ? (
-                <div className="mt-3 grid place-items-center rounded-lg bg-white p-3">
-                  {/* Con logo se sube la corrección de errores a "H" (recupera
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Que escaneen este QR o abran el enlace para agregar la tarjeta a Google Wallet o
+                  Apple Wallet.
+                </p>
+                {enrollUrl ? (
+                  <div className="mt-3 grid place-items-center rounded-lg bg-white p-3">
+                    {/* Con logo se sube la corrección de errores a "H" (recupera
                       hasta un 30% del código). El logo tapa módulos: sin ese
                       margen el QR dejaría de leerse, y un QR bonito que no
                       escanea es peor que uno feo que sí.
                       32 de 160 px = 20% del ancho, dentro de lo que "H" tolera. */}
-                  <QRCodeSVG
-                    value={enrollUrl}
-                    size={160}
-                    level={business.logo_url ? "H" : "M"}
-                    imageSettings={
-                      business.logo_url
-                        ? { src: business.logo_url, height: 32, width: 32, excavate: true }
-                        : undefined
-                    }
-                  />
+                    <QRCodeSVG
+                      value={enrollUrl}
+                      size={160}
+                      level={business.logo_url ? "H" : "M"}
+                      imageSettings={
+                        business.logo_url
+                          ? { src: business.logo_url, height: 32, width: 32, excavate: true }
+                          : undefined
+                      }
+                    />
+                  </div>
+                ) : null}
+                <div className="mt-3 flex gap-2">
+                  <Input readOnly value={enrollUrl} className="text-xs" />
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    aria-label="Copiar enlace de inscripción"
+                    title="Copiar enlace"
+                    className="h-11 w-11 shrink-0 sm:h-9 sm:w-9"
+                    onClick={() => {
+                      navigator.clipboard.writeText(enrollUrl);
+                      toast.success("Enlace copiado");
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
                 </div>
-              ) : null}
-              <div className="mt-3 flex gap-2">
-                <Input readOnly value={enrollUrl} className="text-xs" />
-                <Button
-                  size="icon"
-                  variant="outline"
-                  aria-label="Copiar enlace de inscripción"
-                  title="Copiar enlace"
-                  className="h-11 w-11 shrink-0 sm:h-9 sm:w-9"
-                  onClick={() => {
-                    navigator.clipboard.writeText(enrollUrl);
-                    toast.success("Enlace copiado");
-                  }}
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
-              <Link to="/unirse/$slug" params={{ slug: business.slug }} target="_blank">
-                <Button variant="link" size="sm" className="mt-1 px-0">
-                  Abrir página de inscripción →
-                </Button>
-              </Link>
+                <Link to="/unirse/$slug" params={{ slug: business.slug }} target="_blank">
+                  <Button variant="link" size="sm" className="mt-1 px-0">
+                    Abrir página de inscripción →
+                  </Button>
+                </Link>
               </div>
             </div>
           </div>
@@ -801,7 +823,9 @@ export function Dashboard({
                   ) : null}
                   <select
                     value={birthdayMonth ?? ""}
-                    onChange={(e) => setBirthdayMonth(e.target.value ? Number(e.target.value) : null)}
+                    onChange={(e) =>
+                      setBirthdayMonth(e.target.value ? Number(e.target.value) : null)
+                    }
                     className="h-7 rounded-md border border-input bg-background px-2 text-sm"
                   >
                     <option value="">Todos los meses</option>
@@ -828,150 +852,159 @@ export function Dashboard({
             ) : (
               <ul className="mt-3 divide-y rounded-xl border">
                 {shownMembers.map((m) => {
-                  const done = selectedProgram ? m.stamps >= selectedProgram.stamps_required : false;
+                  const done = selectedProgram
+                    ? m.stamps >= selectedProgram.stamps_required
+                    : false;
                   const inactive = isInactiveMember(m, inactiveDays);
                   const nuevo = isNewMember(m);
                   return (
                     <li key={m.id} className="p-3">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        {/* flex-wrap en vez de truncate: con el nombre, las
+                        <div className="min-w-0">
+                          {/* flex-wrap en vez de truncate: con el nombre, las
                             insignias y ahora el WhatsApp, en un celular no cabe
                             todo en una línea y truncate cortaba justo el dato
                             nuevo. Prefiere envolver antes que ocultar. */}
-                        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium">
-                          {m.full_name}
-                          {nuevo ? (
-                            <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
-                              Nuevo
-                            </span>
-                          ) : null}
-                          {inactive ? (
-                            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
-                              Inactivo
-                            </span>
-                          ) : null}
-                          {m.wallet_object_id ? (
-                            <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400" title="Google Wallet">
-                              Google ✓
-                            </span>
-                          ) : null}
-                          {m.apple_pass_serial_number ? (
-                            <span className="rounded-full bg-gray-500/15 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:text-gray-400" title="Apple Wallet">
-                              Apple ✓
-                            </span>
-                          ) : null}
-                          {/* WhatsApp al final del renglón del nombre. Es
+                          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium">
+                            {m.full_name}
+                            {nuevo ? (
+                              <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+                                Nuevo
+                              </span>
+                            ) : null}
+                            {inactive ? (
+                              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                                Inactivo
+                              </span>
+                            ) : null}
+                            {m.wallet_object_id ? (
+                              <span
+                                className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400"
+                                title="Google Wallet"
+                              >
+                                Google ✓
+                              </span>
+                            ) : null}
+                            {m.apple_pass_serial_number ? (
+                              <span
+                                className="rounded-full bg-gray-500/15 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:text-gray-400"
+                                title="Apple Wallet"
+                              >
+                                Apple ✓
+                              </span>
+                            ) : null}
+                            {/* WhatsApp al final del renglón del nombre. Es
                               opcional al inscribirse, así que muchos clientes no
                               lo tienen y entonces no se pinta nada: un hueco
                               vacío ensuciaría la fila sin aportar. */}
-                          {m.phone ? (
-                            (() => {
-                              const wa = enlaceWhatsApp(m.phone);
-                              const contenido = (
-                                <>
-                                  <MessageCircle className="h-3 w-3 shrink-0" />
-                                  {m.phone}
-                                </>
-                              );
-                              // Si el número no da un enlace válido se muestra
-                              // igual, pero como texto: mejor eso que un enlace
-                              // que abre WhatsApp en una conversación vacía.
-                              return wa ? (
-                                <a
-                                  href={wa}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  title={`Escribir a ${m.full_name} por WhatsApp`}
-                                  className="flex items-center gap-1 text-xs font-normal text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-green-600"
-                                >
-                                  {contenido}
-                                </a>
-                              ) : (
-                                <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
-                                  {contenido}
-                                </span>
-                              );
-                            })()
-                          ) : null}
-                        </p>
-                        {/* La línea de sellos despliega el historial. Se usa un
+                            {m.phone
+                              ? (() => {
+                                  const wa = enlaceWhatsApp(m.phone);
+                                  const contenido = (
+                                    <>
+                                      <MessageCircle className="h-3 w-3 shrink-0" />
+                                      {m.phone}
+                                    </>
+                                  );
+                                  // Si el número no da un enlace válido se muestra
+                                  // igual, pero como texto: mejor eso que un enlace
+                                  // que abre WhatsApp en una conversación vacía.
+                                  return wa ? (
+                                    <a
+                                      href={wa}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title={`Escribir a ${m.full_name} por WhatsApp`}
+                                      className="flex items-center gap-1 text-xs font-normal text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-green-600"
+                                    >
+                                      {contenido}
+                                    </a>
+                                  ) : (
+                                    <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
+                                      {contenido}
+                                    </span>
+                                  );
+                                })()
+                              : null}
+                          </p>
+                          {/* La línea de sellos despliega el historial. Se usa un
                             botón y no un div con onClick para que funcione con
                             teclado y lo anuncie un lector de pantalla. */}
-                        <button
-                          type="button"
-                          onClick={() => setHistorialDe((v) => (v === m.id ? null : m.id))}
-                          aria-expanded={historialDe === m.id}
-                          className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                        >
-                          {m.stamps}/{selectedProgram?.stamps_required ?? "?"} sellos · {m.rewards_redeemed} premios
-                          <ChevronDown
-                            className={`h-3.5 w-3.5 transition-transform ${historialDe === m.id ? "rotate-180" : ""}`}
-                          />
-                        </button>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          title="Enviar mensaje"
-                          onClick={() => setMsgMember(m)}
-                          className="gap-1"
-                        >
-                          <Send className="h-4 w-4" />
-                          <span className="hidden sm:inline">Mensaje</span>
-                        </Button>
-                        {done ? (
+                          <button
+                            type="button"
+                            onClick={() => setHistorialDe((v) => (v === m.id ? null : m.id))}
+                            aria-expanded={historialDe === m.id}
+                            className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            {m.stamps}/{selectedProgram?.stamps_required ?? "?"} sellos ·{" "}
+                            {m.rewards_redeemed} premios
+                            <ChevronDown
+                              className={`h-3.5 w-3.5 transition-transform ${historialDe === m.id ? "rotate-180" : ""}`}
+                            />
+                          </button>
+                        </div>
+                        <div className="flex gap-2">
                           <Button
                             size="sm"
-                            variant="secondary"
-                            disabled={busy === m.id}
-                            onClick={() => redeem(m)}
+                            variant="ghost"
+                            title="Enviar mensaje"
+                            onClick={() => setMsgMember(m)}
                             className="gap-1"
                           >
-                            <Gift className="h-4 w-4" /> Canjear
+                            <Send className="h-4 w-4" />
+                            <span className="hidden sm:inline">Mensaje</span>
                           </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            disabled={busy === m.id}
-                            onClick={() => stamp(m)}
-                            className="gap-1"
-                          >
-                            <Plus className="h-4 w-4" /> Sello
-                          </Button>
-                        )}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
+                          {done ? (
                             <Button
-                              size="icon"
-                              variant="ghost"
-                              title="Más opciones"
-                              aria-label="Más opciones"
-                              className="h-11 w-11 sm:h-9 sm:w-9"
+                              size="sm"
+                              variant="secondary"
+                              disabled={busy === m.id}
+                              onClick={() => redeem(m)}
+                              className="gap-1"
                             >
-                              <MoreVertical className="h-4 w-4" />
+                              <Gift className="h-4 w-4" /> Canjear
                             </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              disabled={m.stamps <= 0 || busy === m.id}
-                              onClick={() => quitarSello(m)}
+                          ) : (
+                            <Button
+                              size="sm"
+                              disabled={busy === m.id}
+                              onClick={() => stamp(m)}
+                              className="gap-1"
                             >
-                              <Minus className="mr-2 h-4 w-4" /> Quitar un sello
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setEditMember(m)}>
-                              <Pencil className="mr-2 h-4 w-4" /> Editar cliente
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setDelMember(m)}
-                              className="text-red-600 focus:text-red-700"
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" /> Eliminar tarjeta
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
+                              <Plus className="h-4 w-4" /> Sello
+                            </Button>
+                          )}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                title="Más opciones"
+                                aria-label="Más opciones"
+                                className="h-11 w-11 sm:h-9 sm:w-9"
+                              >
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                disabled={m.stamps <= 0 || busy === m.id}
+                                onClick={() => quitarSello(m)}
+                              >
+                                <Minus className="mr-2 h-4 w-4" /> Quitar un sello
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => setEditMember(m)}>
+                                <Pencil className="mr-2 h-4 w-4" /> Editar cliente
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => setDelMember(m)}
+                                className="text-red-600 focus:text-red-700"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" /> Eliminar tarjeta
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       </div>
 
                       {historialDe === m.id ? <MemberHistory memberId={m.id} /> : null}
@@ -990,9 +1023,13 @@ export function Dashboard({
 
             <LocationEditor business={business} reload={reload} />
 
-            {selectedProgram ? <WelcomeMessageEditor program={selectedProgram} reload={reload} /> : null}
+            {selectedProgram ? (
+              <WelcomeMessageEditor program={selectedProgram} reload={reload} />
+            ) : null}
 
-            {selectedProgram ? <StampMessageEditor program={selectedProgram} reload={reload} /> : null}
+            {selectedProgram ? (
+              <StampMessageEditor program={selectedProgram} reload={reload} />
+            ) : null}
           </aside>
         </div>
       </div>
@@ -1027,7 +1064,11 @@ export function Dashboard({
         onClose={() => setCredentialsOpen(false)}
         reload={reload}
       />
-      <NewProgramDialog open={newProgramOpen} onClose={() => setNewProgramOpen(false)} reload={reload} />
+      <NewProgramDialog
+        open={newProgramOpen}
+        onClose={() => setNewProgramOpen(false)}
+        reload={reload}
+      />
     </div>
   );
 }
@@ -1193,7 +1234,11 @@ function NewProgramDialog({
         <div className="grid gap-3">
           <div className="grid gap-1.5">
             <Label>Nombre del programa</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: Tarjeta Compras" />
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ej: Tarjeta Compras"
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
@@ -1208,7 +1253,11 @@ function NewProgramDialog({
             </div>
             <div className="grid gap-1.5">
               <Label>Premio</Label>
-              <Input value={reward} onChange={(e) => setReward(e.target.value)} placeholder="Ej: Descuento 20%" />
+              <Input
+                value={reward}
+                onChange={(e) => setReward(e.target.value)}
+                placeholder="Ej: Descuento 20%"
+              />
             </div>
           </div>
         </div>
@@ -1305,7 +1354,8 @@ function ScanDialog({
             <ScanLine className="h-5 w-5 text-primary" /> Escanear QR del cliente
           </DialogTitle>
           <DialogDescription>
-            Suma un sello escaneando el código QR de la tarjeta de Google o Apple Wallet del cliente.
+            Suma un sello escaneando el código QR de la tarjeta de Google o Apple Wallet del
+            cliente.
           </DialogDescription>
         </DialogHeader>
         <div
@@ -1385,8 +1435,8 @@ function BroadcastDialog({
         </DialogHeader>
 
         <div className="rounded-lg bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-400">
-          ⚠️ Google permite <strong>máximo 3 avisos con notificación cada 24 h</strong> por
-          tarjeta. Úsalo solo para promos o avisos importantes.
+          ⚠️ Google permite <strong>máximo 3 avisos con notificación cada 24 h</strong> por tarjeta.
+          Úsalo solo para promos o avisos importantes.
         </div>
 
         <div className="grid gap-1.5">
@@ -1557,7 +1607,9 @@ function MemberMessageDialog({
             onClick={openWhatsApp}
             disabled={sending}
             className="gap-1 text-green-600 hover:text-green-700"
-            title={member?.phone ? "Abrir WhatsApp con el mensaje" : "Este cliente no dejó WhatsApp"}
+            title={
+              member?.phone ? "Abrir WhatsApp con el mensaje" : "Este cliente no dejó WhatsApp"
+            }
           >
             <MessageCircle className="h-4 w-4" /> WhatsApp
           </Button>
@@ -1738,11 +1790,7 @@ function MemberDeleteDialog({
           <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancelar
           </Button>
-          <Button
-            className="bg-red-600 text-white hover:bg-red-700"
-            onClick={del}
-            disabled={busy}
-          >
+          <Button className="bg-red-600 text-white hover:bg-red-700" onClick={del} disabled={busy}>
             {busy ? "Eliminando…" : "Sí, eliminar"}
           </Button>
         </DialogFooter>
@@ -1820,7 +1868,9 @@ function MemberHistory({ memberId }: { memberId: string }) {
     return <p className="mt-2 rounded-lg bg-muted/50 p-3 text-xs text-red-600">{error}</p>;
   }
   if (!events) {
-    return <p className="mt-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">Cargando…</p>;
+    return (
+      <p className="mt-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">Cargando…</p>
+    );
   }
   if (events.length === 0) {
     return (
@@ -1854,7 +1904,11 @@ function MemberHistory({ memberId }: { memberId: string }) {
               </span>
             </span>
             <span className="shrink-0 text-muted-foreground">
-              {fecha.toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" })}
+              {fecha.toLocaleDateString("es-CO", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })}
               {" · "}
               {fecha.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}
             </span>
@@ -1913,15 +1967,15 @@ function PlanCard({ usage }: { usage: PlanUsage }) {
 
       {apretado ? (
         <p className="mt-3 rounded-lg bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-400">
-          Te quedan pocos cupos de cliente. Habla con quien administra tu programa para ampliar
-          el plan.
+          Te quedan pocos cupos de cliente. Habla con quien administra tu programa para ampliar el
+          plan.
         </p>
       ) : null}
     </div>
   );
 }
 
-function LogoEditor({ business, reload }: { business: Business; reload: () => void }) {
+export function LogoEditor({ business, reload }: { business: Business; reload: () => void }) {
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -1938,21 +1992,13 @@ function LogoEditor({ business, reload }: { business: Business; reload: () => vo
     }
     setUploading(true);
     try {
-      const buf = new Uint8Array(await file.arrayBuffer());
-      let bin = "";
-      const chunk = 0x8000;
-      for (let i = 0; i < buf.length; i += chunk) {
-        bin += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + chunk)));
-      }
-      const dataBase64 = btoa(bin);
+      // Se normaliza en el navegador: en Cloudflare no hay con qué decodificar
+      // imágenes. Sale un PNG cuadrado y ligero, que es lo único que Apple
+      // acepta dentro del pase.
+      const { dataBase64, contentType } = await normalizarLogo(file);
       const token = await getAccessToken();
       await uploadLogoFn({
-        data: {
-          token,
-          businessId: business.id,
-          contentType: file.type as "image/png" | "image/jpeg" | "image/webp",
-          dataBase64,
-        },
+        data: { token, businessId: business.id, contentType, dataBase64 },
       });
       toast.success("Logo actualizado", { description: "Ya aparece en la tarjeta de Wallet." });
       reload();
@@ -1970,7 +2016,8 @@ function LogoEditor({ business, reload }: { business: Business; reload: () => vo
         <ImagePlus className="h-4 w-4 text-primary" /> Logo del negocio
       </h3>
       <p className="mt-1 text-xs text-muted-foreground">
-        Aparece en la tarjeta de Google y Apple Wallet. Cuadrado, mín. 640×640 px, máx. 5MB.
+        Aparece en la tarjeta de Google y Apple Wallet. Cuadrado. Lo recortamos y optimizamos solos;
+        máx. 5MB.
       </p>
       <div className="mt-3 flex items-center gap-3">
         {business.logo_url ? (
@@ -2018,7 +2065,9 @@ function LocationEditor({ business, reload }: { business: Business; reload: () =
     setBusy(true);
     try {
       const token = await getAccessToken();
-      await setBusinessLocationFn({ data: { token, businessId: business.id, latitude, longitude } });
+      await setBusinessLocationFn({
+        data: { token, businessId: business.id, latitude, longitude },
+      });
       toast.success(okMsg);
       reload();
     } catch (err) {
@@ -2055,7 +2104,8 @@ function LocationEditor({ business, reload }: { business: Business; reload: () =
       </p>
       {hasLoc ? (
         <p className="mt-2 text-xs">
-          📍 Ubicación configurada ({business.latitude!.toFixed(5)}, {business.longitude!.toFixed(5)})
+          📍 Ubicación configurada ({business.latitude!.toFixed(5)},{" "}
+          {business.longitude!.toFixed(5)})
         </p>
       ) : (
         <p className="mt-2 text-xs text-muted-foreground">Sin ubicación configurada.</p>
@@ -2173,8 +2223,8 @@ function StampMessageEditor({ program, reload }: { program: Program; reload: () 
         <BellRing className="h-4 w-4 text-primary" /> Mensaje al dar un sello
       </h3>
       <p className="mt-1 text-xs text-muted-foreground">
-        Escribe la notificación push que recibirá tu cliente al darle un sello.
-        Si lo dejas vacío, se usa un mensaje por defecto.
+        Escribe la notificación push que recibirá tu cliente al darle un sello. Si lo dejas vacío,
+        se usa un mensaje por defecto.
       </p>
       <Textarea
         value={text}
