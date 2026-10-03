@@ -17,6 +17,9 @@ import { getSupabaseAdmin } from "./supabaseAdmin.server";
 import { requireBusinessAccess, businessIdFromSession, requireUser } from "./authz.server";
 import { createMemberPass } from "./wallet/google.server";
 import { getWalletConfig, getWalletConfigForProgram } from "./wallet/config.server";
+import { regenerateApplePassBuffer } from "./wallet/apple.server";
+import { getAppleWalletConfig } from "./wallet/apple-config.server";
+import { notifyMemberPassUpdate } from "./wallet/apns.server";
 
 // ---------------------------------------------------------------------------
 // Tipos que ve la UI
@@ -339,6 +342,27 @@ export const saveReservationFn = createServerFn({ method: "POST" })
       }
     }
 
+    // El iPhone no se entera solo: hay que refirmar el .pkpass con el MISMO
+    // serial y avisar a sus dispositivos por APNs. Sin el aviso, Wallet seguiría
+    // enseñando la estancia vieja hasta que al huésped se le ocurriera abrirla.
+    if (existente?.apple_pass_serial_number) {
+      try {
+        await syncHotelApplePass(
+          {
+            id: memberId,
+            full_name: data.guestName,
+            stamps: (existente.stamps as number) ?? 0,
+            serial: existente.apple_pass_serial_number as string,
+          },
+          program,
+          business,
+          reserva as never,
+        );
+      } catch (err) {
+        console.error("[hotel] no se pudo actualizar el pase de Apple:", err);
+      }
+    }
+
     const { data: member } = await db
       .from("loyalty_members")
       .select("id, full_name, document_id, phone, wallet_object_id")
@@ -436,6 +460,77 @@ export const saveHotelSettingsFn = createServerFn({ method: "POST" })
 
     return { ok: true, whatsapp: fila.whatsapp };
   });
+
+/**
+ * Refirma el .pkpass de la estancia y avisa a los iPhone del huésped.
+ *
+ * Reutiliza el serial y el authenticationToken existentes: si cambiara
+ * cualquiera de los dos, el pase instalado dejaría de poder hablar con nuestro
+ * servicio y se quedaría congelado para siempre.
+ */
+async function syncHotelApplePass(
+  member: { id: string; full_name: string; stamps: number; serial: string },
+  program: Program,
+  business: Business,
+  reservation: never,
+): Promise<void> {
+  const db = getSupabaseAdmin();
+  const cfg = getAppleWalletConfig();
+
+  const { data: fila } = await db
+    .from("loyalty_apple_passes")
+    .select("auth_token")
+    .eq("pass_type_id", cfg.passTypeId)
+    .eq("serial_number", member.serial)
+    .maybeSingle();
+  if (!fila?.auth_token) return;
+
+  const { data: settings } = await db
+    .from("hotel_settings")
+    .select("*")
+    .eq("business_id", business.id)
+    .maybeSingle();
+
+  const { pkpassBuffer, mock } = await regenerateApplePassBuffer(
+    member,
+    program,
+    business,
+    member.serial,
+    fila.auth_token as string,
+    undefined,
+    null,
+    {
+      tipo: "hotel",
+      hotel: {
+        reservation,
+        settings: (settings ?? {
+          services: [],
+          guest_guide: [],
+          reception_phone: null,
+          whatsapp: null,
+          website: null,
+        }) as never,
+      },
+    },
+  );
+  if (mock || !pkpassBuffer) return;
+
+  await db
+    .from("loyalty_apple_passes")
+    .update({
+      signature: "\\x" + pkpassBuffer.toString("hex"),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("pass_type_id", cfg.passTypeId)
+    .eq("serial_number", member.serial);
+
+  const { data: devices } = await db
+    .from("loyalty_device_registrations")
+    .select("push_token")
+    .eq("member_id", member.id);
+  const tokens = (devices ?? []).map((d) => d.push_token as string).filter(Boolean);
+  if (tokens.length > 0) await notifyMemberPassUpdate(tokens);
+}
 
 /** Deja el número en formato internacional. Asume Colombia si no trae indicativo. */
 function normalizarWhatsapp(valor: string): string {

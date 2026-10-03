@@ -6,7 +6,15 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import type { Business, Member, Program, ProgramWithWallet, Plan, Subscription, Invoice } from "./data";
+import type {
+  Business,
+  Member,
+  Program,
+  ProgramWithWallet,
+  Plan,
+  Subscription,
+  Invoice,
+} from "./data";
 import { PROGRAM_CLIENT_COLUMNS } from "./data";
 import { getSupabaseAdmin } from "./supabaseAdmin.server";
 import {
@@ -41,7 +49,12 @@ import { notifyMemberPassUpdate } from "./wallet/apns.server";
  * Google Wallet ya se actualizó igual.
  */
 async function syncApplePass(
-  member: { id: string; full_name: string; stamps: number; apple_pass_serial_number: string | null },
+  member: {
+    id: string;
+    full_name: string;
+    stamps: number;
+    apple_pass_serial_number: string | null;
+  },
   program: Program,
   business: Business,
   opts?: { stampChangeMessage?: string; auxiliaryMessage?: string },
@@ -76,7 +89,10 @@ async function syncApplePass(
 
     await db
       .from("loyalty_apple_passes")
-      .update({ signature: "\\x" + pkpassBuffer.toString("hex"), updated_at: new Date().toISOString() })
+      .update({
+        signature: "\\x" + pkpassBuffer.toString("hex"),
+        updated_at: new Date().toISOString(),
+      })
       .eq("pass_type_id", appleCfg.passTypeId)
       .eq("serial_number", serialNumber);
 
@@ -217,7 +233,10 @@ async function loadPlanUsage(
     const { count } = await db
       .from("loyalty_members")
       .select("id", { count: "exact", head: true })
-      .in("program_id", programs.map((p) => p.id));
+      .in(
+        "program_id",
+        programs.map((p) => p.id),
+      );
     members = count ?? 0;
   }
 
@@ -363,7 +382,7 @@ export const getReservationByTokenFn = createServerFn({ method: "POST" })
     const { data: member } = await db
       .from("loyalty_members")
       // Sin la cédula a propósito: esta respuesta va al navegador del huésped.
-      .select("id, full_name, stamps, program_id, wallet_object_id")
+      .select("id, full_name, stamps, program_id, wallet_object_id, apple_pass_serial_number")
       .eq("id", reserva.member_id)
       .maybeSingle();
     if (!member) throw new Error("No encontramos al huésped de esta reserva.");
@@ -392,7 +411,9 @@ export const getReservationByTokenFn = createServerFn({ method: "POST" })
       // Sin fila en hotel_settings el pase sale válido pero PELADO: sin botón de
       // recepción, sin WhatsApp, sin cómo llegar y sin guía. Degradar en silencio
       // es peor que ruidoso — ya pasó una vez y la tarjeta parecía correcta.
-      console.warn(`[hotel] ${business.id} no tiene hotel_settings: el pase irá sin servicios ni contactos.`);
+      console.warn(
+        `[hotel] ${business.id} no tiene hotel_settings: el pase irá sin servicios ni contactos.`,
+      );
     }
 
     const hotel = {
@@ -416,7 +437,25 @@ export const getReservationByTokenFn = createServerFn({ method: "POST" })
     );
 
     if (pass.objectId && pass.objectId !== member.wallet_object_id) {
-      await db.from("loyalty_members").update({ wallet_object_id: pass.objectId }).eq("id", member.id);
+      await db
+        .from("loyalty_members")
+        .update({ wallet_object_id: pass.objectId })
+        .eq("id", member.id);
+    }
+
+    // El pase de iPhone. Best-effort: si Apple falla, el huésped con Android
+    // sigue teniendo el suyo, y es mejor media página que un error entero.
+    let appleUrl: string | null = null;
+    try {
+      appleUrl = await ensureHotelApplePass(
+        { id: member.id, full_name: member.full_name, stamps: member.stamps ?? 0 },
+        member.apple_pass_serial_number as string | null,
+        program as Program,
+        business as Business,
+        hotel,
+      );
+    } catch (err) {
+      console.error("[hotel] no se pudo preparar el pase de Apple:", err);
     }
 
     return {
@@ -434,8 +473,78 @@ export const getReservationByTokenFn = createServerFn({ method: "POST" })
       },
       googleSaveUrl: pass.saveUrl,
       googleMock: pass.mock,
+      appleDownloadUrl: appleUrl,
     };
   });
+
+/**
+ * Deja listo el .pkpass de la estancia y devuelve su enlace de descarga.
+ *
+ * Si el huésped ya tuvo un pase —porque es su segunda estancia— se REFIRMA el
+ * mismo serial en vez de emitir otro: así el iPhone lo reconoce como la tarjeta
+ * que ya tiene y la actualiza, que es justo lo que se decidió al elegir una
+ * tarjeta por huésped. Emitir un serial nuevo le dejaría dos.
+ */
+async function ensureHotelApplePass(
+  member: { id: string; full_name: string; stamps: number },
+  serialExistente: string | null,
+  program: Program,
+  business: Business,
+  hotel: { reservation: never; settings: never },
+): Promise<string | null> {
+  const db = getSupabaseAdmin();
+  const cfg = getAppleWalletConfig();
+  const extra = { tipo: "hotel", hotel } as Parameters<typeof createMemberApplePass>[4];
+
+  if (serialExistente) {
+    const { data: fila } = await db
+      .from("loyalty_apple_passes")
+      .select("auth_token")
+      .eq("pass_type_id", cfg.passTypeId)
+      .eq("serial_number", serialExistente)
+      .maybeSingle();
+    if (!fila?.auth_token) return null;
+
+    const { pkpassBuffer, mock } = await regenerateApplePassBuffer(
+      member,
+      program,
+      business,
+      serialExistente,
+      fila.auth_token as string,
+      undefined,
+      null,
+      extra,
+    );
+    if (mock) return null;
+
+    await db
+      .from("loyalty_apple_passes")
+      .update({ signature: "\\x" + (pkpassBuffer ?? Buffer.from("")).toString("hex") })
+      .eq("pass_type_id", cfg.passTypeId)
+      .eq("serial_number", serialExistente);
+
+    return `${cfg.origin}/api/passkit/download/${serialExistente}?t=${fila.auth_token}`;
+  }
+
+  const applePass = await createMemberApplePass(member, program, business, null, extra);
+  if (applePass.mock) return null;
+
+  const { error } = await db.from("loyalty_apple_passes").insert({
+    member_id: member.id,
+    pass_type_id: cfg.passTypeId,
+    serial_number: applePass.serialNumber,
+    auth_token: applePass.authToken,
+    signature: "\\x" + (applePass.pkpassBuffer ?? Buffer.from("")).toString("hex"),
+  });
+  if (error) throw new Error(error.message);
+
+  await db
+    .from("loyalty_members")
+    .update({ apple_pass_serial_number: applePass.serialNumber })
+    .eq("id", member.id);
+
+  return applePass.downloadUrl;
+}
 
 /** Panel del comercio: datos del negocio del usuario autenticado. */
 export const getMyDashboardFn = createServerFn({ method: "POST" })
@@ -741,11 +850,7 @@ export const uploadLogoFn = createServerFn({ method: "POST" })
     const db = getSupabaseAdmin();
 
     const ext =
-      data.contentType === "image/png"
-        ? "png"
-        : data.contentType === "image/webp"
-          ? "webp"
-          : "jpg";
+      data.contentType === "image/png" ? "png" : data.contentType === "image/webp" ? "webp" : "jpg";
     const bytes = Uint8Array.from(atob(data.dataBase64), (c) => c.charCodeAt(0));
     if (bytes.length > 5 * 1024 * 1024) throw new Error("La imagen supera 5MB.");
 
@@ -1212,8 +1317,9 @@ export const broadcastFn = createServerFn({ method: "POST" })
       .select("*, loyalty_businesses(name, status)")
       .eq("id", data.programId)
       .single();
-    const biz = (prog as (Program & { loyalty_businesses?: { name?: string; status?: string } }) | null)
-      ?.loyalty_businesses;
+    const biz = (
+      prog as (Program & { loyalty_businesses?: { name?: string; status?: string } }) | null
+    )?.loyalty_businesses;
     if (biz?.status === "paused") {
       throw new Error("Servicio pausado. Contacta al administrador para reactivarlo.");
     }
@@ -1226,7 +1332,12 @@ export const broadcastFn = createServerFn({ method: "POST" })
       .eq("program_id", data.programId);
     if (me) throw new Error(`No se pudieron cargar los clientes: ${me.message}`);
 
-    const list = (members ?? []) as { id: string; full_name: string; stamps: number; apple_pass_serial_number: string | null }[];
+    const list = (members ?? []) as {
+      id: string;
+      full_name: string;
+      stamps: number;
+      apple_pass_serial_number: string | null;
+    }[];
     const fill = (s: string, name: string) =>
       s.replace(/\{negocio\}/g, businessName).replace(/\{nombre\}/g, name);
 
@@ -1237,13 +1348,16 @@ export const broadcastFn = createServerFn({ method: "POST" })
         const cfg = prog ? getWalletConfigForProgram(prog as ProgramWithWallet) : undefined;
         const push = await pushMessage(m.id, { header: title, body }, cfg);
         if (prog) {
-          await syncApplePass(m, prog as Program, business, { auxiliaryMessage: `${title}: ${body}` });
+          await syncApplePass(m, prog as Program, business, {
+            auxiliaryMessage: `${title}: ${body}`,
+          });
         }
         return push;
       }),
     );
     const fulfilled = results.filter(
-      (r): r is PromiseFulfilledResult<{ sent: boolean; mock: boolean }> => r.status === "fulfilled",
+      (r): r is PromiseFulfilledResult<{ sent: boolean; mock: boolean }> =>
+        r.status === "fulfilled",
     );
     const sent = fulfilled.filter((r) => r.value.sent).length;
     const failed = results.length - fulfilled.length;
@@ -1314,7 +1428,10 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
       cfg,
     );
 
-    await db.from("loyalty_members").update({ wallet_object_id: pass.objectId }).eq("id", member.id);
+    await db
+      .from("loyalty_members")
+      .update({ wallet_object_id: pass.objectId })
+      .eq("id", member.id);
 
     // Pase de Apple Wallet (best-effort: si falla, no bloquea la inscripción —
     // el cliente igual queda registrado y puede usar Google Wallet).
@@ -1363,7 +1480,11 @@ export const enrollMemberFn = createServerFn({ method: "POST" })
         .replace(/\{nombre\}/g, member.full_name)
         .replace(/\{negocio\}/g, (business as Business).name);
       const cfg = getWalletConfigForProgram(program as ProgramWithWallet);
-      await pushMessage(member.id, { header: `¡Bienvenido/a a ${(business as Business).name}! 🎉`, body }, cfg);
+      await pushMessage(
+        member.id,
+        { header: `¡Bienvenido/a a ${(business as Business).name}! 🎉`, body },
+        cfg,
+      );
     } catch (err) {
       console.warn("welcome message:", err);
     }
@@ -1782,7 +1903,7 @@ export const updateBusinessCredentialsFn = createServerFn({ method: "POST" })
       businessId: z.string().uuid(),
       username: z.string().min(1),
       password: z.string().min(1),
-    })
+    }),
   )
   .handler(async ({ data }) => {
     await requireAdmin(data.token);

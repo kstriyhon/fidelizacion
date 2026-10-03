@@ -14,8 +14,17 @@
 // existen bajo el default export, no en el namespace `import *`.
 import forge from "node-forge";
 import JSZip from "jszip";
-import { getAppleWalletConfig, type AppleWalletConfig, decodeBase64Certificate, decodeBase64PrivateKey } from "./apple-config.server";
+import {
+  getAppleWalletConfig,
+  type AppleWalletConfig,
+  decodeBase64Certificate,
+  decodeBase64PrivateKey,
+} from "./apple-config.server";
 import { stampDots } from "./dots";
+// Se reutilizan los tipos del motor de pases: la reserva y los ajustes del
+// hotel son los mismos datos para Google y para Apple, y tenerlos declarados
+// dos veces garantizaría que un día dejen de coincidir.
+import type { ReservationLike, HotelSettingsLike } from "./passes";
 
 export type ProgramLike = {
   id: string;
@@ -71,6 +80,11 @@ interface PassField {
   label: string;
   value: string | number;
   changeMessage?: string;
+  // Con un valor ISO 8601, Wallet lo formatea en el idioma y la zona del
+  // dispositivo. Mejor que mandar la fecha ya escrita: el huésped que llega de
+  // otro país la ve como la escribiría en su casa.
+  dateStyle?: string;
+  timeStyle?: string;
 }
 
 // Apple exige EXACTAMENTE una de estas 5 claves de estilo a nivel raíz
@@ -127,6 +141,23 @@ interface PassTemplate {
 
 interface PassInstance extends PassTemplate {
   serialNumber: string;
+}
+
+/**
+ * Pase de estancia de hotel.
+ *
+ * Usa el estilo "generic" y no "storeCard" porque no es una tarjeta de saldo:
+ * no hay nada que acumular, hay una estancia con fechas. Es el equivalente en
+ * Apple a haber elegido genericObject en Google.
+ */
+interface HotelPassInstance extends Omit<PassTemplate, "storeCard" | "logoText" | "description"> {
+  description: string;
+  logoText: string;
+  generic: StoreCardStyle;
+  /** Check-out. Pasada esta fecha Wallet marca el pase como caducado. */
+  expirationDate?: string;
+  /** Check-in. Wallet acerca el pase a la pantalla de bloqueo cerca de la fecha. */
+  relevantDate?: string;
 }
 
 // --- Construcción de pases ---------------------------------------------------
@@ -274,6 +305,113 @@ export function buildPassInstance(
   };
 }
 
+/**
+ * Construye el pase de estancia para un huésped.
+ *
+ * Diferencias de fondo con el de sellos, no solo de maquetación:
+ *   - caduca con el check-out (`expirationDate`), que es lo que impide que la
+ *     estancia del año pasado compita con la de ahora en el Wallet del huésped;
+ *   - los contactos van en backFields. Apple no tiene "botones de enlace" como
+ *     Google: lo que hace es detectar teléfonos y direcciones web dentro del
+ *     texto del reverso y volverlos pulsables. Por eso el teléfono se escribe
+ *     tal cual y no "Llamar a recepción".
+ */
+export function buildHotelPassInstance(
+  cfg: AppleWalletConfig,
+  business: BusinessLike,
+  member: MemberLike,
+  reservation: ReservationLike,
+  settings: HotelSettingsLike,
+  serialNumber: string,
+  authToken: string,
+): HotelPassInstance {
+  const brand = business.brand_color.replace("#", "");
+  const rgb = (i: number) => parseInt(brand.substr(i, 2), 16);
+
+  return {
+    formatVersion: 1,
+    passTypeIdentifier: cfg.passTypeId,
+    serialNumber,
+    teamIdentifier: cfg.teamId,
+    organizationName: business.name,
+    description: `Estancia en ${business.name}`,
+    logoText: business.name,
+
+    expirationDate: new Date(reservation.check_out).toISOString(),
+    relevantDate: new Date(reservation.check_in).toISOString(),
+
+    barcode: {
+      format: "PKBarcodeFormatQR",
+      // El id interno del huésped, NUNCA la cédula: el pase se enseña en
+      // recepción y se fotografía.
+      message: member.id,
+      messageEncoding: "iso-8859-1",
+    },
+    barcodes: [{ format: "PKBarcodeFormatQR", message: member.id, messageEncoding: "iso-8859-1" }],
+
+    ...(business.latitude != null && business.longitude != null
+      ? { locations: [{ latitude: business.latitude, longitude: business.longitude }] }
+      : {}),
+
+    generic: {
+      headerFields: reservation.room
+        ? [{ key: "room", label: "Habitación", value: reservation.room }]
+        : [],
+      primaryFields: [{ key: "guest", label: "Huésped", value: member.full_name }],
+      secondaryFields: [
+        {
+          key: "checkin",
+          label: "Llegada",
+          value: new Date(reservation.check_in).toISOString(),
+          dateStyle: "PKDateStyleMedium",
+          timeStyle: "PKDateStyleShort",
+        },
+        {
+          key: "checkout",
+          label: "Salida",
+          value: new Date(reservation.check_out).toISOString(),
+          dateStyle: "PKDateStyleMedium",
+          timeStyle: "PKDateStyleShort",
+        },
+      ],
+      auxiliaryFields: [
+        { key: "code", label: "Reserva", value: reservation.reservation_code },
+        { key: "guests", label: "Huéspedes", value: String(reservation.guests) },
+      ],
+      backFields: [
+        ...(settings.reception_phone
+          ? [{ key: "phone", label: "Recepción", value: settings.reception_phone }]
+          : []),
+        ...(settings.whatsapp ? [{ key: "wa", label: "WhatsApp", value: settings.whatsapp }] : []),
+        ...(settings.website ? [{ key: "web", label: "Sitio web", value: settings.website }] : []),
+        // En el reverso no hay límite práctico de campos, así que aquí cabe la
+        // guía entera — al contrario que en el frente de Google, donde Wallet
+        // solo pinta diez módulos.
+        ...settings.guest_guide.map((g, i) => ({
+          key: `guia_${i}`,
+          label: g.titulo,
+          value: g.valor,
+        })),
+        ...settings.services.map((s, i) => ({
+          key: `serv_${i}`,
+          label: s.titulo,
+          // Se quita el esquema: Apple vuelve pulsable lo que RECONOCE como
+          // correo o teléfono dentro del texto, y "mailto:ana@hotel.com" no lo
+          // reconoce — se queda como texto muerto. "ana@hotel.com" sí.
+          value: s.url.replace(/^(mailto:|tel:)/, ""),
+        })),
+      ],
+    },
+
+    backgroundColor: `rgb(${rgb(0)},${rgb(2)},${rgb(4)})`,
+    foregroundColor: "rgb(255, 255, 255)",
+    labelColor: "rgb(255, 255, 255)",
+    textColor: "rgb(255, 255, 255)",
+    webServiceURL: `${cfg.origin}/api/passkit`,
+    authenticationToken: authToken,
+  };
+}
+
 // --- Firma PKCS#7 -----------------------------------------------------------
 
 /**
@@ -284,7 +422,7 @@ async function signPass(
   passJsonString: string,
   certP12Buffer: Buffer,
   certPassword: string,
-  wwdrCertBuffer: Buffer
+  wwdrCertBuffer: Buffer,
 ): Promise<Buffer> {
   try {
     // 1. Parsear P12 (contiene la clave privada + certificado)
@@ -357,7 +495,9 @@ async function signPass(
     const signature = forge.asn1.toDer(p7.toAsn1());
     return Buffer.from(signature.getBytes(), "binary");
   } catch (error) {
-    throw new Error(`Failed to sign pass: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to sign pass: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -368,9 +508,9 @@ async function signPass(
  * Retorna un Buffer que puede servirse como descarga.
  */
 export async function generatePKPass(
-  passJson: PassInstance,
+  passJson: PassInstance | HotelPassInstance,
   logoBase64: string | null,
-  cfg: Extract<AppleWalletConfig, { mode: "live" }>
+  cfg: Extract<AppleWalletConfig, { mode: "live" }>,
 ): Promise<Buffer> {
   // Estructura de un .pkpass según el spec de Apple:
   //   1. Los archivos del bundle: pass.json, icon.png, [logo.png], ...
@@ -409,7 +549,12 @@ export async function generatePKPass(
 
   const certP12Buffer = decodeBase64Certificate(cfg.certificateP12Base64);
   const wwdrCertBuffer = decodeBase64Certificate(cfg.wwdrCertificateBase64);
-  const signature = await signPass(manifestString, certP12Buffer, cfg.certificatePassword, wwdrCertBuffer);
+  const signature = await signPass(
+    manifestString,
+    certP12Buffer,
+    cfg.certificatePassword,
+    wwdrCertBuffer,
+  );
 
   const zip = new JSZip();
   for (const [name, buf] of Object.entries(files)) {
@@ -426,6 +571,23 @@ export async function generatePKPass(
 // --- API pública del módulo -------------------------------------------------
 
 /**
+ * true si hay que emitir un pase de estancia.
+ *
+ * Exige el tipo Y los datos de la reserva: un programa marcado como hotel pero
+ * sin reserva es un error de quien llama, y es preferible emitir el pase de
+ * siempre que reventar en la cara del huésped mientras se registra.
+ */
+function esHotel(extra?: {
+  tipo?: string;
+  hotel?: { reservation: ReservationLike; settings: HotelSettingsLike };
+}): extra is {
+  tipo: string;
+  hotel: { reservation: ReservationLike; settings: HotelSettingsLike };
+} {
+  return extra?.tipo === "hotel" && Boolean(extra.hotel);
+}
+
+/**
  * Crea un pase de Apple Wallet para un cliente.
  * Retorna serialNumber, descargaUrl (si live), y metadata.
  */
@@ -433,7 +595,9 @@ export async function createMemberApplePass(
   member: MemberLike,
   program: ProgramLike,
   business: BusinessLike,
-  logoBase64: string | null = null
+  logoBase64: string | null = null,
+  /** Tipo de programa y, si es hotel, su reserva y sus ajustes. */
+  extra?: { tipo?: string; hotel?: { reservation: ReservationLike; settings: HotelSettingsLike } },
 ): Promise<{
   serialNumber: string;
   authToken: string;
@@ -460,9 +624,23 @@ export async function createMemberApplePass(
 
   // Modo live: generar pase real
   try {
-    // 1. Construir template + instance
-    const template = buildPassTemplate(cfg, program, business, authToken);
-    const passInstance = buildPassInstance(template, member, program, serialNumber);
+    // 1. Construir el pase que toque según la vertical
+    const passInstance = esHotel(extra)
+      ? buildHotelPassInstance(
+          cfg,
+          business,
+          member,
+          extra.hotel.reservation,
+          extra.hotel.settings,
+          serialNumber,
+          authToken,
+        )
+      : buildPassInstance(
+          buildPassTemplate(cfg, program, business, authToken),
+          member,
+          program,
+          serialNumber,
+        );
 
     // 2. Generar .pkpass (ZIP). generatePKPass arma el manifest y firma
     // manifest.json internamente. El llamador lo persiste (DB/storage) para
@@ -482,7 +660,9 @@ export async function createMemberApplePass(
       mock: false,
     };
   } catch (error) {
-    throw new Error(`Failed to create Apple pass: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to create Apple pass: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -505,6 +685,7 @@ export async function regenerateApplePassBuffer(
   authToken: string,
   opts?: { stampChangeMessage?: string; auxiliaryMessage?: string },
   logoBase64: string | null = null,
+  extra?: { tipo?: string; hotel?: { reservation: ReservationLike; settings: HotelSettingsLike } },
 ): Promise<{ pkpassBuffer: Buffer | null; mock: boolean }> {
   const cfg = getAppleWalletConfig();
 
@@ -513,13 +694,30 @@ export async function regenerateApplePassBuffer(
   }
 
   try {
-    const template = buildPassTemplate(cfg, program, business, authToken);
-    const passInstance = buildPassInstance(template, member, program, serialNumber, opts);
+    const passInstance = esHotel(extra)
+      ? buildHotelPassInstance(
+          cfg,
+          business,
+          member,
+          extra.hotel.reservation,
+          extra.hotel.settings,
+          serialNumber,
+          authToken,
+        )
+      : buildPassInstance(
+          buildPassTemplate(cfg, program, business, authToken),
+          member,
+          program,
+          serialNumber,
+          opts,
+        );
 
     const pkpassBuffer = await generatePKPass(passInstance, logoBase64, cfg);
 
     return { pkpassBuffer, mock: false };
   } catch (error) {
-    throw new Error(`Failed to regenerate Apple pass: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to regenerate Apple pass: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }

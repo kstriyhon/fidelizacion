@@ -1,5 +1,5 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
-import { Stamp, CalendarCheck, CalendarX, BedDouble, Users, Wallet } from "lucide-react";
+import { Stamp, CalendarCheck, CalendarX, BedDouble, Users, Wallet, Apple } from "lucide-react";
 
 import { getReservationByTokenFn } from "@/lib/loyaltyActions";
 
@@ -89,27 +89,44 @@ function ReservaPage() {
         <div className="mt-6 rounded-xl border bg-card p-5 text-center">
           <p className="font-medium">Lleva tu reserva en el celular</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Guárdala en tu Wallet y tendrás a mano los datos de tu estancia, los servicios del
-            hotel y el contacto de recepción.
+            Guárdala en tu Wallet y tendrás a mano los datos de tu estancia, los servicios del hotel
+            y el contacto de recepción.
           </p>
 
-          {r.googleSaveUrl ? (
-            // Botón propio en vez del distintivo oficial de Google: aquel se
-            // sirve desde un dominio externo y, si no carga, el huésped ve una
-            // imagen rota justo en el paso que importa. Esto siempre se pinta.
-            <a
-              href={r.googleSaveUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 py-3 font-medium text-background transition hover:opacity-90"
-            >
-              <Wallet className="h-5 w-5" />
-              Añadir a Google Wallet
-            </a>
+          {/* Los dos botones, sin detectar el sistema del teléfono: hacerlo por
+              el user agent falla con iPad, con navegadores de escritorio y con
+              quien abre el enlace en un equipo para mandárselo a otro. Se
+              muestran ambos y el huésped pulsa el suyo. */}
+          {r.googleSaveUrl || r.appleDownloadUrl ? (
+            <div className="mt-4 space-y-2">
+              {r.googleSaveUrl ? (
+                // Botón propio en vez del distintivo oficial de Google: aquel se
+                // sirve desde un dominio externo y, si no carga, el huésped ve una
+                // imagen rota justo en el paso que importa. Esto siempre se pinta.
+                <a
+                  href={r.googleSaveUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 py-3 font-medium text-background transition hover:opacity-90"
+                >
+                  <Wallet className="h-5 w-5" />
+                  Añadir a Google Wallet
+                </a>
+              ) : null}
+              {r.appleDownloadUrl ? (
+                <a
+                  href={r.appleDownloadUrl}
+                  className="flex w-full items-center justify-center gap-2 rounded-full border border-foreground px-5 py-3 font-medium transition hover:bg-muted"
+                >
+                  <Apple className="h-5 w-5" />
+                  Añadir a Apple Wallet
+                </a>
+              ) : null}
+            </div>
           ) : (
             <p className="mt-4 rounded-lg bg-muted p-3 text-xs text-muted-foreground">
               {r.googleMock
-                ? "Google Wallet aún no está configurado en este entorno."
+                ? "Wallet aún no está configurado en este entorno."
                 : "No pudimos generar el pase. Avísale al hotel."}
             </p>
           )}
