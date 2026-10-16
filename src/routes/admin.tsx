@@ -126,6 +126,7 @@ function AdminPanel() {
     return (
       <Onboarding
         email={email}
+        permitirHotel
         onCreated={() => {
           setView({ t: "list" });
           load();

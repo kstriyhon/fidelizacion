@@ -227,18 +227,23 @@ export function Onboarding({
   email,
   onCreated,
   planId,
+  permitirHotel = false,
 }: {
   email: string;
   onCreated: () => void;
   /** Plan elegido en /planes. Sin él, el servidor asigna el más barato. */
   planId?: string;
+  /** Solo la consola de admin: permite elegir vertical hotel. */
+  permitirHotel?: boolean;
 }) {
   const [name, setName] = useState("");
   const [color, setColor] = useState("#7c3aed");
   const [programName, setProgramName] = useState("Tarjeta de sellos");
   const [required, setRequired] = useState(10);
   const [reward, setReward] = useState("Un producto gratis");
+  const [vertical, setVertical] = useState<"fidelizacion" | "hotel">("fidelizacion");
   const [saving, setSaving] = useState(false);
+  const esHotel = permitirHotel && vertical === "hotel";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -251,10 +256,13 @@ export function Onboarding({
           token,
           name: name.trim(),
           brand_color: color,
-          programName: programName.trim() || "Tarjeta de sellos",
-          stamps_required: required,
-          reward_description: reward.trim() || "Un producto gratis",
+          programName: esHotel ? "Estancias" : programName.trim() || "Tarjeta de sellos",
+          stamps_required: esHotel ? 10 : required,
+          reward_description: esHotel
+            ? "Beneficio de fidelización"
+            : reward.trim() || "Un producto gratis",
           planId,
+          vertical,
         },
       });
       toast.success("¡Negocio creado!");
@@ -296,6 +304,19 @@ export function Onboarding({
               placeholder="Panadería La Espiga"
             />
           </div>
+          {permitirHotel ? (
+            <div className="grid gap-1.5">
+              <Label>Tipo de negocio</Label>
+              <select
+                value={vertical}
+                onChange={(e) => setVertical(e.target.value as "fidelizacion" | "hotel")}
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+              >
+                <option value="fidelizacion">Sellos (tarjeta de fidelización)</option>
+                <option value="hotel">Hotel (tarjeta de estancia)</option>
+              </select>
+            </div>
+          ) : null}
           <div className="grid gap-1.5">
             <Label>Color de la tarjeta</Label>
             <div className="flex items-center gap-3">
@@ -308,37 +329,47 @@ export function Onboarding({
               <span className="text-sm text-muted-foreground">{color}</span>
             </div>
           </div>
-          <div className="grid gap-1.5">
-            <Label>Nombre del programa</Label>
-            <Input value={programName} onChange={(e) => setProgramName(e.target.value)} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-1.5">
-              <Label>Sellos para el premio</Label>
-              <Input
-                type="number"
-                min={1}
-                max={30}
-                value={required}
-                onChange={(e) => setRequired(Number(e.target.value))}
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Premio</Label>
-              <Input value={reward} onChange={(e) => setReward(e.target.value)} />
-            </div>
-          </div>
 
-          <div className="mt-2 flex justify-center">
-            <LoyaltyCard
-              businessName={name || "Tu negocio"}
-              programName={programName || "Tarjeta de sellos"}
-              rewardDescription={reward || "Un producto gratis"}
-              stamps={3}
-              stampsRequired={required || 10}
-              brandColor={color}
-            />
-          </div>
+          {esHotel ? (
+            <p className="text-sm text-muted-foreground">
+              Al crear el hotel, el panel de reservas, los ajustes y la ubicación se configuran
+              desde su panel. Sus credenciales de recepción se crean con el icono de llave.
+            </p>
+          ) : (
+            <>
+              <div className="grid gap-1.5">
+                <Label>Nombre del programa</Label>
+                <Input value={programName} onChange={(e) => setProgramName(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-1.5">
+                  <Label>Sellos para el premio</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={required}
+                    onChange={(e) => setRequired(Number(e.target.value))}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>Premio</Label>
+                  <Input value={reward} onChange={(e) => setReward(e.target.value)} />
+                </div>
+              </div>
+
+              <div className="mt-2 flex justify-center">
+                <LoyaltyCard
+                  businessName={name || "Tu negocio"}
+                  programName={programName || "Tarjeta de sellos"}
+                  rewardDescription={reward || "Un producto gratis"}
+                  stamps={3}
+                  stampsRequired={required || 10}
+                  brandColor={color}
+                />
+              </div>
+            </>
+          )}
 
           <Button type="submit" size="lg" disabled={saving}>
             {saving ? "Creando…" : "Crear negocio"}

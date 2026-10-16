@@ -748,16 +748,28 @@ export const createBusinessFn = createServerFn({ method: "POST" })
       reward_description: z.string().trim().min(1),
       /** Plan elegido en /planes. Si no viene, se usa el activo más barato. */
       planId: z.string().uuid().optional(),
+      /** Solo el administrador puede crear hoteles. */
+      vertical: z.enum(["fidelizacion", "hotel"]).default("fidelizacion"),
     }),
   )
   .handler(async ({ data }) => {
-    const user = await requireUser(data.token);
+    const user =
+      data.vertical === "hotel"
+        ? await requireAdmin(data.token)
+        : await requireUser(data.token);
     const db = getSupabaseAdmin();
+    const esHotel = data.vertical === "hotel";
 
     const slug = `${slugify(data.name)}-${Math.random().toString(36).slice(2, 6)}`;
     const { data: biz, error: be } = await db
       .from("loyalty_businesses")
-      .insert({ name: data.name, slug, brand_color: data.brand_color, owner_id: user.id })
+      .insert({
+        name: data.name,
+        slug,
+        brand_color: data.brand_color,
+        owner_id: user.id,
+        vertical: data.vertical,
+      })
       .select("*")
       .single();
     if (be || !biz) throw new Error(`No se pudo crear el comercio: ${be?.message ?? ""}`);
@@ -769,6 +781,7 @@ export const createBusinessFn = createServerFn({ method: "POST" })
         name: data.programName,
         stamps_required: data.stamps_required,
         reward_description: data.reward_description,
+        tipo: esHotel ? "hotel" : "sellos",
       })
       .select("*")
       .single();
@@ -823,7 +836,12 @@ export const createBusinessFn = createServerFn({ method: "POST" })
 
     try {
       const cfg = getWalletConfigForProgram(prog as ProgramWithWallet);
-      const res = await ensureProgramClass(prog as Program, biz as Business, cfg);
+      const res = await ensureProgramClass(
+        prog as Program,
+        biz as Business,
+        cfg,
+        esHotel ? "hotel" : undefined,
+      );
       await db.from("loyalty_programs").update({ wallet_class_id: res.classId }).eq("id", prog.id);
     } catch (err) {
       console.warn("provision class:", err);
