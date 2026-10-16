@@ -2057,7 +2057,7 @@ export function LogoEditor({ business, reload }: { business: Business; reload: (
 // ---------------------------------------------------------------------------
 // Alertas de proximidad: ubicación del negocio
 // ---------------------------------------------------------------------------
-function LocationEditor({ business, reload }: { business: Business; reload: () => void }) {
+export function LocationEditor({ business, reload }: { business: Business; reload: () => void }) {
   const [busy, setBusy] = useState(false);
   const hasLoc = business.latitude != null && business.longitude != null;
 

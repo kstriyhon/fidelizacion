@@ -29,7 +29,7 @@ import { useSession, signOut, getAccessToken } from "@/lib/auth";
 import { getBusinessSession } from "@/lib/businessSession";
 import type { Business } from "@/lib/data";
 import { updateBusinessCredentialsFn } from "@/lib/loyaltyActions";
-import { LogoEditor } from "./comercio";
+import { LogoEditor, LocationEditor } from "./comercio";
 import type { Nivel } from "@/lib/hotelFidelizacion";
 import {
   getHotelPanelFn,
@@ -307,6 +307,7 @@ function HotelPanel() {
                   copiarlo: subir un logo tiene su truco (normalizar a PNG, que
                   es lo único que Apple admite) y no debe vivir en dos sitios. */}
               <LogoEditor business={business} reload={load} />
+              <LocationEditor business={business} reload={load} />
               {settings ? (
                 <AjustesTarjeta
                   settings={settings}
